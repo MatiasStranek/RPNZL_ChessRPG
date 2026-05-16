@@ -1,4 +1,6 @@
+// board_model.dart
 import 'package:chessrpg/piece/piece_model.dart';
+import 'spawn_zone.dart'; // NEU
 
 enum CellType { solid, hole }
 
@@ -7,12 +9,14 @@ class BoardModel {
   final int height;
   final List<List<CellType>> cells;
   final List<PieceModel> pieces;
+  final List<SpawnZone> spawnZones; // NEU
 
   BoardModel({
     required this.width,
     required this.height,
     required this.cells,
     required this.pieces,
+    required this.spawnZones, // NEU
   });
 
   factory BoardModel.generate({required int width, required int height}) {
@@ -21,6 +25,12 @@ class BoardModel {
       (_) => List.generate(width, (_) => CellType.solid),
     );
 
-    return BoardModel(width: width, height: height, cells: cells, pieces: []);
+    return BoardModel(
+      width: width,
+      height: height,
+      cells: cells,
+      pieces: [],
+      spawnZones: [], // NEU
+    );
   }
 }

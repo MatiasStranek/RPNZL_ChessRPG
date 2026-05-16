@@ -1,6 +1,8 @@
+// board_loader.dart
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'board_model.dart';
+import 'spawn_zone.dart'; // NEU
 import 'package:chessrpg/piece/piece_model.dart';
 
 class BoardLoader {
@@ -21,6 +23,20 @@ class BoardLoader {
     for (final p in data['pieces']) {
       final team = PieceTeam.values.byName(p['team']);
       board.pieces.add(PieceModel(team: team, x: p['x'], y: p['y']));
+    }
+
+    // NEU: Spawn-Zonen laden
+    for (final z in (data['spawnZones'] as List? ?? [])) {
+      board.spawnZones.add(
+        SpawnZone(
+          x1: z['x1'],
+          y1: z['y1'],
+          x2: z['x2'],
+          y2: z['y2'],
+          maxEnemies: z['maxEnemies'],
+          respawnAfterTurns: z['respawnAfterTurns'],
+        ),
+      );
     }
 
     return board;

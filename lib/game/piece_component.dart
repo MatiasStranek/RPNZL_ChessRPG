@@ -1,3 +1,4 @@
+// piece_component.dart
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import '../piece/piece_model.dart';
