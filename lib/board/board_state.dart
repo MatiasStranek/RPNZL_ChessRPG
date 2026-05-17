@@ -183,7 +183,15 @@ class BoardState extends ChangeNotifier {
   void _moveEnemies(PieceModel player) {
     final moves = <PieceModel, List<int>>{};
 
-    for (final enemy in _enemies()) {
+    // Nächste Gegner zuerst planen
+    final sorted = _enemies()
+      ..sort((a, b) {
+        final distA = (a.x - player.x).abs() + (a.y - player.y).abs();
+        final distB = (b.x - player.x).abs() + (b.y - player.y).abs();
+        return distA.compareTo(distB);
+      });
+
+    for (final enemy in sorted) {
       final bestMove = _bestMoveToward(enemy, player, plannedMoves: moves);
       if (bestMove != null) {
         moves[enemy] = bestMove;
@@ -212,10 +220,24 @@ class BoardState extends ChangeNotifier {
         if (nx < 0 || nx >= board.width || ny < 0 || ny >= board.height)
           continue;
         if (board.cells[ny][nx] == CellType.hole) continue;
-        if (_enemies().any((e) => e != enemy && e.x == nx && e.y == ny))
+
+        // Blockiert wenn ein Gegner dort steht UND sich nicht wegbewegt
+        if (_enemies().any(
+          (e) =>
+              e != enemy &&
+              e.x == nx &&
+              e.y == ny &&
+              !plannedMoves.containsKey(e),
+        ))
           continue;
-        if (nx != player.x || ny != player.y) {
-          if (plannedMoves.values.any((m) => m[0] == nx && m[1] == ny))
+
+        // Blockiert wenn ein anderer Gegner dorthin plant
+        // Ausnahme: Spielerfeld darf von einem angreifenden Gegner besetzt werden
+        final isPlayerField = nx == player.x && ny == player.y;
+        if (!isPlayerField) {
+          if (plannedMoves.entries.any(
+            (e) => e.key != enemy && e.value[0] == nx && e.value[1] == ny,
+          ))
             continue;
         } else {
           if (!enemy.canAttack) continue;
@@ -231,19 +253,35 @@ class BoardState extends ChangeNotifier {
 
     if (candidates.isEmpty) return null;
 
+    // Sortierung nach Manhattan für Annäherung
     candidates.sort((a, b) {
       final distA = (a[0] - player.x).abs() + (a[1] - player.y).abs();
       final distB = (b[0] - player.x).abs() + (b[1] - player.y).abs();
       return distA.compareTo(distB);
     });
 
-    final currentDist = (enemy.x - player.x).abs() + (enemy.y - player.y).abs();
-    final bestDist =
+    // Chebyshev für korrekte Nähe-Prüfung bei diagonaler Bewegung
+    final currentDist = max(
+      (enemy.x - player.x).abs(),
+      (enemy.y - player.y).abs(),
+    );
+    final bestDist = max(
+      (candidates.first[0] - player.x).abs(),
+      (candidates.first[1] - player.y).abs(),
+    );
+
+    if (bestDist < currentDist) return candidates.first;
+
+    // Flankenposition: Manhattan für Positionierungsvorteil
+    final currentFlankDist =
+        (enemy.x - player.x).abs() + (enemy.y - player.y).abs();
+    final bestFlankDist =
         (candidates.first[0] - player.x).abs() +
         (candidates.first[1] - player.y).abs();
-    if (bestDist >= currentDist) return null;
 
-    return candidates.first;
+    if (bestFlankDist < currentFlankDist) return candidates.first;
+
+    return null;
   }
 
   List<PieceModel> _enemies() =>
