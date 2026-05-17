@@ -1,3 +1,4 @@
+// board/board_state.dart
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'board_model.dart';
@@ -13,12 +14,15 @@ class _DeadEnemy {
 class BoardState extends ChangeNotifier {
   BoardModel board;
   PieceModel? selectedPiece;
+  PieceModel? _lastPlayer;
 
   final Map<PieceModel, _DeadEnemy> _dead = {};
 
   void Function(List<PieceModel> spawned, List<PieceModel> removed)?
   onSpawnChanged;
   void Function(PieceModel killer)? onPlayerDefeated;
+  void Function(PieceModel enemy)? onEnemyKilled;
+  void Function()? onEnemiesMoved; // ← neu
 
   final Random _rng = Random();
 
@@ -60,27 +64,34 @@ class BoardState extends ChangeNotifier {
     selectedPiece!.y = y;
     final player = selectedPiece!;
     selectedPiece = null;
-
-    _moveEnemies(player);
-
-    final killer = _enemies()
-        .where((e) => e.x == player.x && e.y == player.y)
-        .firstOrNull;
-    if (killer != null) {
-      removed.add(killer);
-      _killEnemy(killer);
-      final spawned = _tickRespawns();
-      notifyListeners();
-      onSpawnChanged?.call(spawned, removed);
-      onPlayerDefeated?.call(killer);
-      return;
-    }
+    _lastPlayer = player;
 
     final spawned = _tickRespawns();
     notifyListeners();
     if (spawned.isNotEmpty || removed.isNotEmpty) {
       onSpawnChanged?.call(spawned, removed);
     }
+  }
+
+  void moveEnemiesNow() {
+    if (_lastPlayer == null) return;
+    final player = _lastPlayer!;
+    _moveEnemies(player);
+    onEnemiesMoved?.call(); // ← Animationen triggern
+
+    final killer = _enemies()
+        .where((e) => e.x == player.x && e.y == player.y && e.canAttack)
+        .firstOrNull;
+    if (killer != null) {
+      _killEnemy(killer, dropItem: false);
+      final spawned = _tickRespawns();
+      notifyListeners();
+      onSpawnChanged?.call(spawned, [killer]);
+      onPlayerDefeated?.call(killer);
+      return;
+    }
+
+    notifyListeners();
   }
 
   void tickOnly() {
@@ -101,12 +112,13 @@ class BoardState extends ChangeNotifier {
 
   // ─── Interna ───────────────────────────────────────────────────────────────
 
-  void _killEnemy(PieceModel enemy) {
+  void _killEnemy(PieceModel enemy, {bool dropItem = true}) {
     board.pieces.remove(enemy);
     final zone = enemy.spawnZone;
     if (zone != null) {
       _dead[enemy] = _DeadEnemy(zone: zone, turnsLeft: zone.respawnAfterTurns);
     }
+    if (dropItem) onEnemyKilled?.call(enemy);
   }
 
   void _initialSpawn() {
@@ -127,6 +139,8 @@ class BoardState extends ChangeNotifier {
           x: pos[0],
           y: pos[1],
           spawnZone: zone,
+          enemyLevel: zone.enemyLevel,
+          canAttack: zone.enemyLevel > 1,
         ),
       );
     }
@@ -156,6 +170,8 @@ class BoardState extends ChangeNotifier {
         x: pos[0],
         y: pos[1],
         spawnZone: zone,
+        enemyLevel: zone.enemyLevel,
+        canAttack: zone.enemyLevel > 1,
       );
       board.pieces.add(piece);
       spawned.add(piece);
@@ -165,19 +181,69 @@ class BoardState extends ChangeNotifier {
   }
 
   void _moveEnemies(PieceModel player) {
+    final moves = <PieceModel, List<int>>{};
+
     for (final enemy in _enemies()) {
-      final stepX = (player.x - enemy.x).clamp(-1, 1);
-      final stepY = (player.y - enemy.y).clamp(-1, 1);
-      final nx = enemy.x + stepX;
-      final ny = enemy.y + stepY;
-
-      if (nx < 0 || nx >= board.width || ny < 0 || ny >= board.height) continue;
-      if (board.cells[ny][nx] == CellType.hole) continue;
-      if (_enemies().any((e) => e != enemy && e.x == nx && e.y == ny)) continue;
-
-      enemy.x = nx;
-      enemy.y = ny;
+      final bestMove = _bestMoveToward(enemy, player, plannedMoves: moves);
+      if (bestMove != null) {
+        moves[enemy] = bestMove;
+      }
     }
+
+    for (final entry in moves.entries) {
+      entry.key.x = entry.value[0];
+      entry.key.y = entry.value[1];
+    }
+  }
+
+  List<int>? _bestMoveToward(
+    PieceModel enemy,
+    PieceModel player, {
+    Map<PieceModel, List<int>> plannedMoves = const {},
+  }) {
+    final candidates = <List<int>>[];
+
+    for (int dx = -1; dx <= 1; dx++) {
+      for (int dy = -1; dy <= 1; dy++) {
+        if (dx == 0 && dy == 0) continue;
+        final nx = enemy.x + dx;
+        final ny = enemy.y + dy;
+
+        if (nx < 0 || nx >= board.width || ny < 0 || ny >= board.height)
+          continue;
+        if (board.cells[ny][nx] == CellType.hole) continue;
+        if (_enemies().any((e) => e != enemy && e.x == nx && e.y == ny))
+          continue;
+        if (nx != player.x || ny != player.y) {
+          if (plannedMoves.values.any((m) => m[0] == nx && m[1] == ny))
+            continue;
+        } else {
+          if (!enemy.canAttack) continue;
+          if (plannedMoves.entries
+              .where((e) => e.key.canAttack)
+              .any((e) => e.value[0] == nx && e.value[1] == ny))
+            continue;
+        }
+
+        candidates.add([nx, ny]);
+      }
+    }
+
+    if (candidates.isEmpty) return null;
+
+    candidates.sort((a, b) {
+      final distA = (a[0] - player.x).abs() + (a[1] - player.y).abs();
+      final distB = (b[0] - player.x).abs() + (b[1] - player.y).abs();
+      return distA.compareTo(distB);
+    });
+
+    final currentDist = (enemy.x - player.x).abs() + (enemy.y - player.y).abs();
+    final bestDist =
+        (candidates.first[0] - player.x).abs() +
+        (candidates.first[1] - player.y).abs();
+    if (bestDist >= currentDist) return null;
+
+    return candidates.first;
   }
 
   List<PieceModel> _enemies() =>

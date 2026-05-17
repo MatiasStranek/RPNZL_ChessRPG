@@ -1,4 +1,4 @@
-// piece_component.dart
+// game/piece_component.dart
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import '../piece/piece_model.dart';
@@ -6,6 +6,8 @@ import '../piece/piece_model.dart';
 class PieceComponent extends PositionComponent {
   final PieceModel piece;
   static const double cellSize = 48;
+
+  bool get isMoving => false; // Spieler teleportiert, bewegt sich nie smooth
 
   PieceComponent({required this.piece})
     : super(
@@ -35,6 +37,6 @@ class PieceComponent extends PositionComponent {
   void moveTo(int x, int y) {
     piece.x = x;
     piece.y = y;
-    position = Vector2(x * cellSize, y * cellSize);
+    position = Vector2(x * cellSize, y * cellSize); // sofort teleportieren
   }
 }

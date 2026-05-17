@@ -1,4 +1,4 @@
-// chess_game.dart
+// game/chess_game.dart
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
 import 'package:flame/camera.dart';
@@ -9,21 +9,30 @@ import '../board/board_model.dart';
 import '../board/board_state.dart';
 import '../piece/piece_model.dart';
 import '../energy/energy_service.dart';
+import '../inventory/inventory_service.dart';
+import '../inventory/item_model.dart';
 import 'cell_component.dart';
 import 'piece_component.dart';
-import '../enemy/enemy_component.dart';
+import '../enemy/base/enemy_component.dart';
+import '../enemy/types/level1/level1_enemy_component.dart';
 
 class ChessGame extends FlameGame with TapCallbacks {
   final BoardModel board;
   final EnergyService energyService;
+  final InventoryService inventoryService;
   late BoardState state;
   late PieceComponent pieceComponent;
   Vector2 cameraShakeOffset = Vector2.zero();
   bool _gameOver = false;
+  bool _inputLocked = false;
 
   final Map<PieceModel, EnemyComponent> _enemyComponents = {};
 
-  ChessGame({required this.board, required this.energyService});
+  ChessGame({
+    required this.board,
+    required this.energyService,
+    required this.inventoryService,
+  });
 
   @override
   Color backgroundColor() => const Color(0xFF2C2C2C);
@@ -41,14 +50,28 @@ class ChessGame extends FlameGame with TapCallbacks {
       }
     };
 
+    state.onEnemiesMoved = () {
+      for (final entry in _enemyComponents.entries) {
+        entry.value.syncPosition();
+      }
+    };
+
+    state.onEnemyKilled = (enemy) {
+      final item = ItemModel(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        type: ItemType.drop,
+        name: 'Drop',
+      );
+      inventoryService.addItem(item);
+    };
+
     state.onPlayerDefeated = (killer) {
       _gameOver = true;
+      _inputLocked = false;
       energyService.drainEnergy();
     };
 
     energyService.energyNotifier.addListener(_onEnergyChanged);
-
-    camera.viewfinder.anchor = Anchor.center;
 
     for (int y = 0; y < board.height; y++) {
       for (int x = 0; x < board.width; x++) {
@@ -87,16 +110,23 @@ class ChessGame extends FlameGame with TapCallbacks {
   @override
   void update(double dt) {
     super.update(dt);
-    camera.viewfinder.position = pieceComponent.position + cameraShakeOffset;
-    cameraShakeOffset *= 0.85;
 
-    for (final entry in _enemyComponents.entries) {
-      entry.value.syncPosition();
+    cameraShakeOffset *= 0.85;
+    camera.viewfinder.position = pieceComponent.position + cameraShakeOffset;
+
+    if (_inputLocked && !_anyoneMoving()) {
+      _inputLocked = false;
     }
+  }
+
+  bool _anyoneMoving() {
+    return _enemyComponents.values.any((c) => c.isMoving);
   }
 
   @override
   void onTapDown(TapDownEvent event) {
+    if (_inputLocked) return;
+
     final worldPos = camera.globalToLocal(event.canvasPosition);
     final gridX = (worldPos.x / CellComponent.cellSize).floor();
     final gridY = (worldPos.y / CellComponent.cellSize).floor();
@@ -118,49 +148,60 @@ class ChessGame extends FlameGame with TapCallbacks {
       return;
     }
 
-    // Kein Stück ausgewählt → kein Zug möglich
     if (state.selectedPiece == null) {
-      cameraShakeOffset = Vector2(4, 0); // ← neu
+      cameraShakeOffset = Vector2(4, 0);
       return;
     }
 
-    // Ziel nicht erreichbar
     if (!state.isReachable(gridX, gridY)) {
       cameraShakeOffset = Vector2(4, 0);
       state.deselectPiece();
       return;
     }
 
-    // Keine Energie → Zug wäre gültig, aber kein Energie
     if (!energyService.spendEnergy()) {
       cameraShakeOffset = Vector2(4, 0);
-      // state.tickOnly();
       return;
     }
 
+    // oldX/oldY VOR movePiece speichern — danach hat player schon neue Position
     final player = board.pieces.firstWhere((p) => p.team == PieceTeam.player);
     final oldX = player.x;
     final oldY = player.y;
 
-    state.movePiece(gridX, gridY);
+    state.movePiece(gridX, gridY); // ← ändert player.x und player.y
 
-    _shakeCamera(oldX, oldY, player.x, player.y);
+    // player.x/y ist jetzt die neue Position, oldX/oldY die alte → Richtung korrekt
+    pieceComponent.moveTo(player.x, player.y);
+    Future.delayed(const Duration(milliseconds: 16), () {
+      _shakeCamera(oldX, oldY, player.x, player.y);
+    });
 
-    if (state.selectedPiece == null) {
-      pieceComponent.moveTo(player.x, player.y);
-    }
+    _inputLocked = true;
+
+    Future.delayed(const Duration(milliseconds: 150), () {
+      state.moveEnemiesNow();
+    });
   }
 
   void _addEnemy(PieceModel piece) {
-    final comp = EnemyComponent(piece: piece);
+    final EnemyComponent comp = switch (piece.enemyLevel) {
+      1 => Level1EnemyComponent(piece: piece),
+      _ => Level1EnemyComponent(piece: piece),
+    };
     _enemyComponents[piece] = comp;
     world.add(comp);
   }
 
   void _shakeCamera(int fromX, int fromY, int toX, int toY) {
+    print('_shakeCamera: from($fromX,$fromY) to($toX,$toY)');
     final dir = Vector2((toX - fromX).toDouble(), (toY - fromY).toDouble());
-    if (dir.length == 0) return;
+    if (dir.length == 0) {
+      print('dir.length == 0, kein Bounce!');
+      return;
+    }
     dir.normalize();
-    cameraShakeOffset = dir * 6.0;
+    cameraShakeOffset = -dir * 16.0;
+    print('cameraShakeOffset gesetzt: $cameraShakeOffset');
   }
 }
