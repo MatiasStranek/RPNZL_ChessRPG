@@ -1,20 +1,43 @@
 // energy/energy_display.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'energy_service.dart';
 
-class EnergyDisplay extends StatelessWidget {
+class EnergyDisplay extends StatefulWidget {
   final EnergyService energyService;
 
   const EnergyDisplay({super.key, required this.energyService});
 
   @override
+  State<EnergyDisplay> createState() => _EnergyDisplayState();
+}
+
+class _EnergyDisplayState extends State<EnergyDisplay> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<int>(
-      valueListenable: energyService.energyNotifier,
+      valueListenable: widget.energyService.energyNotifier,
       builder: (context, energy, _) {
-        final timeLeft = energyService.timeUntilNextRegen;
+        final timeLeft = widget.energyService.timeUntilNextRegen;
         final hours = timeLeft.inHours;
         final minutes = timeLeft.inMinutes % 60;
+        final seconds = timeLeft.inSeconds % 60;
 
         return SafeArea(
           child: Padding(
@@ -23,7 +46,6 @@ class EnergyDisplay extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Energie-Anzeige links
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -53,7 +75,7 @@ class EnergyDisplay extends StatelessWidget {
                       if (energy < EnergyService.maxEnergy) ...[
                         const SizedBox(width: 6),
                         Text(
-                          '${hours}h ${minutes}m',
+                          '${hours}h ${minutes}m ${seconds.toString().padLeft(2, '0')}s',
                           style: const TextStyle(
                             color: Colors.white54,
                             fontSize: 11,
@@ -64,9 +86,8 @@ class EnergyDisplay extends StatelessWidget {
                   ),
                 ),
 
-                // Cheat-Button rechts
                 GestureDetector(
-                  onTap: energyService.fillEnergy,
+                  onTap: widget.energyService.fillEnergy,
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(

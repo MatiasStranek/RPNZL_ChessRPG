@@ -41,13 +41,12 @@ class ChessGame extends FlameGame with TapCallbacks {
       }
     };
 
-    state.onPlayerDefeated = () {
+    state.onPlayerDefeated = (killer) {
       _gameOver = true;
-      // Energie auf 0 setzen
-      for (int i = 0; i < EnergyService.maxEnergy; i++) {
-        energyService.spendEnergy();
-      }
+      energyService.drainEnergy();
     };
+
+    energyService.energyNotifier.addListener(_onEnergyChanged);
 
     camera.viewfinder.anchor = Anchor.center;
 
@@ -74,6 +73,18 @@ class ChessGame extends FlameGame with TapCallbacks {
   }
 
   @override
+  void onRemove() {
+    energyService.energyNotifier.removeListener(_onEnergyChanged);
+    super.onRemove();
+  }
+
+  void _onEnergyChanged() {
+    if (_gameOver && energyService.energy > 0) {
+      _gameOver = false;
+    }
+  }
+
+  @override
   void update(double dt) {
     super.update(dt);
     camera.viewfinder.position = pieceComponent.position + cameraShakeOffset;
@@ -86,8 +97,6 @@ class ChessGame extends FlameGame with TapCallbacks {
 
   @override
   void onTapDown(TapDownEvent event) {
-    if (_gameOver) return;
-
     final worldPos = camera.globalToLocal(event.canvasPosition);
     final gridX = (worldPos.x / CellComponent.cellSize).floor();
     final gridY = (worldPos.y / CellComponent.cellSize).floor();
@@ -106,23 +115,39 @@ class ChessGame extends FlameGame with TapCallbacks {
 
     if (piece != null && piece.team == PieceTeam.player) {
       state.selectPiece(piece);
-    } else {
-      if (!energyService.spendEnergy()) {
-        cameraShakeOffset = Vector2(4, 0); // Hinweis: keine Energie
-        return;
-      }
+      return;
+    }
 
-      final player = board.pieces.firstWhere((p) => p.team == PieceTeam.player);
-      final oldX = player.x;
-      final oldY = player.y;
+    // Kein Stück ausgewählt → kein Zug möglich
+    if (state.selectedPiece == null) {
+      cameraShakeOffset = Vector2(4, 0); // ← neu
+      return;
+    }
 
-      state.movePiece(gridX, gridY);
+    // Ziel nicht erreichbar
+    if (!state.isReachable(gridX, gridY)) {
+      cameraShakeOffset = Vector2(4, 0);
+      state.deselectPiece();
+      return;
+    }
 
-      _shakeCamera(oldX, oldY, player.x, player.y);
+    // Keine Energie → Zug wäre gültig, aber kein Energie
+    if (!energyService.spendEnergy()) {
+      cameraShakeOffset = Vector2(4, 0);
+      // state.tickOnly();
+      return;
+    }
 
-      if (state.selectedPiece == null) {
-        pieceComponent.moveTo(player.x, player.y);
-      }
+    final player = board.pieces.firstWhere((p) => p.team == PieceTeam.player);
+    final oldX = player.x;
+    final oldY = player.y;
+
+    state.movePiece(gridX, gridY);
+
+    _shakeCamera(oldX, oldY, player.x, player.y);
+
+    if (state.selectedPiece == null) {
+      pieceComponent.moveTo(player.x, player.y);
     }
   }
 

@@ -1,21 +1,24 @@
-// board_state.dart
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'board_model.dart';
 import 'spawn_zone.dart';
 import 'package:chessrpg/piece/piece_model.dart';
 
+class _DeadEnemy {
+  final SpawnZone zone;
+  int turnsLeft;
+  _DeadEnemy({required this.zone, required this.turnsLeft});
+}
+
 class BoardState extends ChangeNotifier {
   BoardModel board;
   PieceModel? selectedPiece;
 
-  // Respawn-Counter: totes Gegner-Piece -> verbleibende Züge bis Respawn
-  final Map<PieceModel, int> _respawnCounters = {};
+  final Map<PieceModel, _DeadEnemy> _dead = {};
 
-  // Callbacks für chess_game.dart
   void Function(List<PieceModel> spawned, List<PieceModel> removed)?
   onSpawnChanged;
-  void Function()? onPlayerDefeated;
+  void Function(PieceModel killer)? onPlayerDefeated;
 
   final Random _rng = Random();
 
@@ -46,14 +49,11 @@ class BoardState extends ChangeNotifier {
       return;
     }
 
-    // Gegner schlagen
     final killed = _enemyAt(x, y);
     final List<PieceModel> removed = [];
     if (killed != null) {
-      final zone = _zoneOf(killed);
-      board.pieces.remove(killed);
-      if (zone != null) _respawnCounters[killed] = zone.respawnAfterTurns;
       removed.add(killed);
+      _killEnemy(killed);
     }
 
     selectedPiece!.x = x;
@@ -61,22 +61,33 @@ class BoardState extends ChangeNotifier {
     final player = selectedPiece!;
     selectedPiece = null;
 
-    // Gegner bewegen
     _moveEnemies(player);
 
-    // Spieler besiegt?
-    if (_enemies().any((e) => e.x == player.x && e.y == player.y)) {
-      onPlayerDefeated?.call();
+    final killer = _enemies()
+        .where((e) => e.x == player.x && e.y == player.y)
+        .firstOrNull;
+    if (killer != null) {
+      removed.add(killer);
+      _killEnemy(killer);
+      final spawned = _tickRespawns();
       notifyListeners();
+      onSpawnChanged?.call(spawned, removed);
+      onPlayerDefeated?.call(killer);
       return;
     }
 
-    // Respawn-Counter ticken
-    final List<PieceModel> spawned = _tickRespawns();
-
+    final spawned = _tickRespawns();
     notifyListeners();
     if (spawned.isNotEmpty || removed.isNotEmpty) {
       onSpawnChanged?.call(spawned, removed);
+    }
+  }
+
+  void tickOnly() {
+    final spawned = _tickRespawns();
+    if (spawned.isNotEmpty) {
+      notifyListeners();
+      onSpawnChanged?.call(spawned, []);
     }
   }
 
@@ -90,6 +101,14 @@ class BoardState extends ChangeNotifier {
 
   // ─── Interna ───────────────────────────────────────────────────────────────
 
+  void _killEnemy(PieceModel enemy) {
+    board.pieces.remove(enemy);
+    final zone = enemy.spawnZone;
+    if (zone != null) {
+      _dead[enemy] = _DeadEnemy(zone: zone, turnsLeft: zone.respawnAfterTurns);
+    }
+  }
+
   void _initialSpawn() {
     for (final zone in board.spawnZones) {
       _fillZone(zone);
@@ -97,13 +116,19 @@ class BoardState extends ChangeNotifier {
   }
 
   void _fillZone(SpawnZone zone) {
-    final alive = _enemies().where((e) => _isInZone(e, zone)).length;
+    final alive = _enemies().where((e) => e.spawnZone == zone).length;
     final slots = zone.maxEnemies - alive;
-
     for (int i = 0; i < slots; i++) {
       final pos = _randomFreeCell(zone);
       if (pos == null) break;
-      board.pieces.add(PieceModel(team: PieceTeam.enemy, x: pos[0], y: pos[1]));
+      board.pieces.add(
+        PieceModel(
+          team: PieceTeam.enemy,
+          x: pos[0],
+          y: pos[1],
+          spawnZone: zone,
+        ),
+      );
     }
   }
 
@@ -111,24 +136,27 @@ class BoardState extends ChangeNotifier {
     final spawned = <PieceModel>[];
     final toRespawn = <PieceModel>[];
 
-    for (final entry in _respawnCounters.entries) {
-      if (entry.value <= 1) {
+    for (final entry in _dead.entries) {
+      entry.value.turnsLeft--;
+      if (entry.value.turnsLeft <= 0) {
         toRespawn.add(entry.key);
-      } else {
-        _respawnCounters[entry.key] = entry.value - 1;
       }
     }
 
     for (final dead in toRespawn) {
-      _respawnCounters.remove(dead);
-      // Zone anhand der letzten Position des toten Gegners ermitteln
-      final zone = board.spawnZones
-          .where((z) => _isInZone(dead, z))
-          .firstOrNull;
-      if (zone == null) continue;
+      final zone = _dead[dead]!.zone;
       final pos = _randomFreeCell(zone);
-      if (pos == null) continue;
-      final piece = PieceModel(team: PieceTeam.enemy, x: pos[0], y: pos[1]);
+      if (pos == null) {
+        _dead[dead]!.turnsLeft = 1;
+        continue;
+      }
+      _dead.remove(dead);
+      final piece = PieceModel(
+        team: PieceTeam.enemy,
+        x: pos[0],
+        y: pos[1],
+        spawnZone: zone,
+      );
       board.pieces.add(piece);
       spawned.add(piece);
     }
@@ -157,15 +185,6 @@ class BoardState extends ChangeNotifier {
 
   PieceModel? _enemyAt(int x, int y) =>
       _enemies().where((e) => e.x == x && e.y == y).firstOrNull;
-
-  bool _isInZone(PieceModel piece, SpawnZone zone) =>
-      piece.x >= zone.left &&
-      piece.x <= zone.right &&
-      piece.y >= zone.top &&
-      piece.y <= zone.bottom;
-
-  SpawnZone? _zoneOf(PieceModel piece) =>
-      board.spawnZones.where((z) => _isInZone(piece, z)).firstOrNull;
 
   List<int>? _randomFreeCell(SpawnZone zone) {
     final candidates = <List<int>>[];

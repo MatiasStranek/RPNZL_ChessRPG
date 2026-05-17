@@ -54,6 +54,12 @@ class EnergyService {
     return true;
   }
 
+  /// Setzt Energie auf 0 (z.B. bei Game Over).
+  void drainEnergy() {
+    _box.put(_energyKey, 0);
+    energyNotifier.value = 0;
+  }
+
   void fillEnergy() {
     _box.put(_energyKey, maxEnergy);
     energyNotifier.value = maxEnergy;

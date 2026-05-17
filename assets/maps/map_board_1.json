@@ -10,11 +10,6 @@
       "x1": 0, "y1": 0, "x2": 3, "y2": 3,
       "maxEnemies": 2,
       "respawnAfterTurns": 3
-    },
-    {
-      "x1": 6, "y1": 6, "x2": 9, "y2": 9,
-      "maxEnemies": 2,
-      "respawnAfterTurns": 4
     }
   ]
 }
