@@ -8,21 +8,32 @@ import 'energy/energy_service.dart';
 import 'energy/energy_display.dart';
 import 'inventory/inventory_service.dart';
 import 'inventory/inventory_display.dart';
+import 'inventory/item_effect_handler.dart';
+import 'player/player_service.dart';
+import 'player/player_display.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
 
-  final energyService = EnergyService();
+  // PlayerService zuerst – andere Services hängen davon ab
+  final playerService = PlayerService();
+  await playerService.init();
+
+  final energyService = EnergyService(playerService: playerService);
   await energyService.init();
 
-  final inventoryService = InventoryService();
+  final inventoryService = InventoryService(playerService: playerService);
+  await inventoryService.init();
+
+  final effectHandler = ItemEffectHandler(energyService: energyService);
 
   final board = await BoardLoader.loadMap('map_board_1');
   final game = ChessGame(
     board: board,
     energyService: energyService,
     inventoryService: inventoryService,
+    playerService: playerService,
   );
 
   runApp(
@@ -32,8 +43,27 @@ void main() async {
         body: Stack(
           children: [
             GameWidget(game: game),
-            EnergyDisplay(energyService: energyService),
-            InventoryDisplay(inventoryService: inventoryService),
+
+            // ── HUD oben links ─────────────────────────────────────────
+            SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Energie (bestehend)
+                  EnergyDisplay(energyService: energyService),
+                  const SizedBox(height: 4),
+                  // EXP / Level / Gold (neu) – direkt darunter
+                  PlayerDisplay(playerService: playerService),
+                ],
+              ),
+            ),
+
+            // ── Inventar ───────────────────────────────────────────────
+            InventoryDisplay(
+              inventoryService: inventoryService,
+              effectHandler: effectHandler,
+            ),
           ],
         ),
       ),

@@ -10,7 +10,9 @@ import '../board/board_state.dart';
 import '../piece/piece_model.dart';
 import '../energy/energy_service.dart';
 import '../inventory/inventory_service.dart';
-import '../inventory/item_model.dart';
+import '../inventory/item_factory.dart';
+import '../player/player_service.dart'; // ← neu
+import '../enemy/enemy_rewards.dart'; // ← neu
 import 'cell_component.dart';
 import 'piece_component.dart';
 import '../enemy/base/enemy_component.dart';
@@ -20,6 +22,7 @@ class ChessGame extends FlameGame with TapCallbacks {
   final BoardModel board;
   final EnergyService energyService;
   final InventoryService inventoryService;
+  final PlayerService playerService; // ← neu
   late BoardState state;
   late PieceComponent pieceComponent;
   Vector2 cameraShakeOffset = Vector2.zero();
@@ -32,6 +35,7 @@ class ChessGame extends FlameGame with TapCallbacks {
     required this.board,
     required this.energyService,
     required this.inventoryService,
+    required this.playerService, // ← neu
   });
 
   @override
@@ -56,14 +60,22 @@ class ChessGame extends FlameGame with TapCallbacks {
       }
     };
 
+    // ── Belohnung je nach Gegner-Level ──────────────────────────────────────
     state.onEnemyKilled = (enemy) {
-      final item = ItemModel(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        type: ItemType.drop,
-        name: 'Drop',
+      inventoryService.addItem(ItemFactory.energyDrop());
+
+      // EXP + Gold über die zentrale Tabelle in player_service.dart vergeben
+      final reward = playerService.rewardForKill(enemy.enemyLevel);
+
+      // Optional: Debug-Ausgabe entfernen, wenn nicht mehr gebraucht
+      debugPrint(
+        'Enemy L${enemy.enemyLevel} besiegt → '
+        '+${enemyRewardByLevel[enemy.enemyLevel]?.exp ?? 1} EXP, '
+        '+${enemyRewardByLevel[enemy.enemyLevel]?.gold ?? 5} Gold | '
+        '$reward',
       );
-      inventoryService.addItem(item);
     };
+    // ────────────────────────────────────────────────────────────────────────
 
     state.onPlayerDefeated = (killer) {
       _gameOver = true;
@@ -164,14 +176,12 @@ class ChessGame extends FlameGame with TapCallbacks {
       return;
     }
 
-    // oldX/oldY VOR movePiece speichern — danach hat player schon neue Position
     final player = board.pieces.firstWhere((p) => p.team == PieceTeam.player);
     final oldX = player.x;
     final oldY = player.y;
 
-    state.movePiece(gridX, gridY); // ← ändert player.x und player.y
+    state.movePiece(gridX, gridY);
 
-    // player.x/y ist jetzt die neue Position, oldX/oldY die alte → Richtung korrekt
     pieceComponent.moveTo(player.x, player.y);
     Future.delayed(const Duration(milliseconds: 16), () {
       _shakeCamera(oldX, oldY, player.x, player.y);
@@ -194,14 +204,9 @@ class ChessGame extends FlameGame with TapCallbacks {
   }
 
   void _shakeCamera(int fromX, int fromY, int toX, int toY) {
-    print('_shakeCamera: from($fromX,$fromY) to($toX,$toY)');
     final dir = Vector2((toX - fromX).toDouble(), (toY - fromY).toDouble());
-    if (dir.length == 0) {
-      print('dir.length == 0, kein Bounce!');
-      return;
-    }
+    if (dir.length == 0) return;
     dir.normalize();
     cameraShakeOffset = -dir * 16.0;
-    print('cameraShakeOffset gesetzt: $cameraShakeOffset');
   }
 }

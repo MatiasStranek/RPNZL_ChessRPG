@@ -34,6 +34,8 @@ class _EnergyDisplayState extends State<EnergyDisplay> {
     return ValueListenableBuilder<int>(
       valueListenable: widget.energyService.energyNotifier,
       builder: (context, energy, _) {
+        // ← Instanz-Zugriff statt statischem Zugriff
+        final maxEnergy = widget.energyService.maxEnergy;
         final timeLeft = widget.energyService.timeUntilNextRegen;
         final hours = timeLeft.inHours;
         final minutes = timeLeft.inMinutes % 60;
@@ -65,14 +67,14 @@ class _EnergyDisplayState extends State<EnergyDisplay> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '$energy / ${EnergyService.maxEnergy}',
+                        '$energy / $maxEnergy',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),
                       ),
-                      if (energy < EnergyService.maxEnergy) ...[
+                      if (energy < maxEnergy) ...[
                         const SizedBox(width: 6),
                         Text(
                           '${hours}h ${minutes}m ${seconds.toString().padLeft(2, '0')}s',

@@ -1,13 +1,17 @@
 // energy/energy_service.dart
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../player/player_service.dart';
 
 class EnergyService {
   static const String _boxName = 'energy';
   static const String _energyKey = 'current';
   static const String _lastRegenKey = 'lastRegen';
-  static const int maxEnergy = 4;
   static const Duration regenInterval = Duration(hours: 6);
+
+  final PlayerService playerService;
+
+  EnergyService({required this.playerService});
 
   late Box _box;
   late ValueNotifier<int> energyNotifier;
@@ -16,9 +20,20 @@ class EnergyService {
     _box = await Hive.openBox(_boxName);
     _applyOfflineRegen();
     energyNotifier = ValueNotifier(energy);
+
+    // Wenn sich das Level ändert → Energie-Cap könnte sich erhöht haben
+    playerService.playerNotifier.addListener(_onPlayerLevelChanged);
   }
 
-  int get energy => _box.get(_energyKey, defaultValue: maxEnergy) as int;
+  void dispose() {
+    playerService.playerNotifier.removeListener(_onPlayerLevelChanged);
+  }
+
+  /// Aktuelles Maximum aus PlayerService – ändert sich mit dem Level.
+  int get maxEnergy => playerService.maxEnergy;
+
+  int get energy => (_box.get(_energyKey, defaultValue: maxEnergy) as int)
+      .clamp(0, maxEnergy);
 
   DateTime get _lastRegen {
     final ms = _box.get(
@@ -28,9 +43,8 @@ class EnergyService {
     return DateTime.fromMillisecondsSinceEpoch(ms as int);
   }
 
-  void _setLastRegen(DateTime dt) {
-    _box.put(_lastRegenKey, dt.millisecondsSinceEpoch);
-  }
+  void _setLastRegen(DateTime dt) =>
+      _box.put(_lastRegenKey, dt.millisecondsSinceEpoch);
 
   void _applyOfflineRegen() {
     if (energy >= maxEnergy) return;
@@ -45,6 +59,12 @@ class EnergyService {
     }
   }
 
+  /// Wird aufgerufen wenn der Spieler ein Level aufsteigt → Notifier aktualisieren.
+  void _onPlayerLevelChanged() {
+    energyNotifier.value =
+        energy; // clamp sorgt dafür dass Wert im neuen Cap liegt
+  }
+
   bool spendEnergy() {
     if (energy <= 0) return false;
     final wasMax = energy == maxEnergy;
@@ -54,7 +74,12 @@ class EnergyService {
     return true;
   }
 
-  /// Setzt Energie auf 0 (z.B. bei Game Over).
+  void restoreEnergy(int amount) {
+    final newEnergy = (energy + amount).clamp(0, maxEnergy);
+    _box.put(_energyKey, newEnergy);
+    energyNotifier.value = newEnergy;
+  }
+
   void drainEnergy() {
     _box.put(_energyKey, 0);
     energyNotifier.value = 0;
