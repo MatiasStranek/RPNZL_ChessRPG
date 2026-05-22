@@ -8,7 +8,7 @@ import 'item_factory.dart';
 import 'upgrades/energy_upgrades.dart';
 
 class InventoryService {
-  static const int totalSlots = 8;
+  static const int totalSlots = 32;
   static const String _boxName = 'inventory';
 
   final PlayerService playerService;
