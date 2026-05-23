@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'board_model.dart';
 import 'spawn_zone.dart';
 import 'package:chessrpg/piece/piece_model.dart';
+import '../skills/active_skill_service.dart';
+import '../skills/base_moves/standard_move.dart';
 
 class _DeadEnemy {
   final SpawnZone zone;
@@ -16,13 +18,17 @@ class BoardState extends ChangeNotifier {
   PieceModel? selectedPiece;
   PieceModel? _lastPlayer;
 
+  // ── Skill-Integration ─────────────────────────────────────────────────────
+  ActiveSkillService? activeSkillService;
+  final StandardMove _standardMove = StandardMove();
+
   final Map<PieceModel, _DeadEnemy> _dead = {};
 
   void Function(List<PieceModel> spawned, List<PieceModel> removed)?
   onSpawnChanged;
   void Function(PieceModel killer)? onPlayerDefeated;
   void Function(PieceModel enemy)? onEnemyKilled;
-  void Function()? onEnemiesMoved; // ← neu
+  void Function()? onEnemiesMoved;
 
   final Random _rng = Random();
 
@@ -41,13 +47,31 @@ class BoardState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Legale Felder ─────────────────────────────────────────────────────────
+
+  /// Gibt alle legalen Zielfelder zurück — je nach aktivem Skill oder Standard.
+  List<List<int>> getLegalMoves(int fromX, int fromY) {
+    final skill = activeSkillService?.activeSkill;
+    if (skill != null) {
+      return skill.getLegalMoves(fromX, fromY, this);
+    }
+    return _standardMove.getLegalMoves(fromX, fromY, this);
+  }
+
+  bool isReachable(int x, int y) {
+    if (selectedPiece == null) return false;
+    return getLegalMoves(
+      selectedPiece!.x,
+      selectedPiece!.y,
+    ).any((m) => m[0] == x && m[1] == y);
+  }
+
+  // ── Bewegung ──────────────────────────────────────────────────────────────
+
   void movePiece(int x, int y) {
     if (selectedPiece == null) return;
     if (board.cells[y][x] == CellType.hole) return;
-
-    final dx = (x - selectedPiece!.x).abs();
-    final dy = (y - selectedPiece!.y).abs();
-    if (dx > 1 || dy > 1) {
+    if (!isReachable(x, y)) {
       selectedPiece = null;
       notifyListeners();
       return;
@@ -66,6 +90,9 @@ class BoardState extends ChangeNotifier {
     selectedPiece = null;
     _lastPlayer = player;
 
+    // Skill nach erfolgreicher Bewegung deaktivieren
+    activeSkillService?.deactivate();
+
     final spawned = _tickRespawns();
     notifyListeners();
     if (spawned.isNotEmpty || removed.isNotEmpty) {
@@ -77,7 +104,7 @@ class BoardState extends ChangeNotifier {
     if (_lastPlayer == null) return;
     final player = _lastPlayer!;
     _moveEnemies(player);
-    onEnemiesMoved?.call(); // ← Animationen triggern
+    onEnemiesMoved?.call();
 
     final killer = _enemies()
         .where((e) => e.x == player.x && e.y == player.y && e.canAttack)
@@ -100,14 +127,6 @@ class BoardState extends ChangeNotifier {
       notifyListeners();
       onSpawnChanged?.call(spawned, []);
     }
-  }
-
-  bool isReachable(int x, int y) {
-    if (selectedPiece == null) return false;
-    if (board.cells[y][x] == CellType.hole) return false;
-    final dx = (x - selectedPiece!.x).abs();
-    final dy = (y - selectedPiece!.y).abs();
-    return dx <= 1 && dy <= 1 && !(dx == 0 && dy == 0);
   }
 
   // ─── Interna ───────────────────────────────────────────────────────────────
@@ -152,9 +171,7 @@ class BoardState extends ChangeNotifier {
 
     for (final entry in _dead.entries) {
       entry.value.turnsLeft--;
-      if (entry.value.turnsLeft <= 0) {
-        toRespawn.add(entry.key);
-      }
+      if (entry.value.turnsLeft <= 0) toRespawn.add(entry.key);
     }
 
     for (final dead in toRespawn) {
@@ -182,8 +199,6 @@ class BoardState extends ChangeNotifier {
 
   void _moveEnemies(PieceModel player) {
     final moves = <PieceModel, List<int>>{};
-
-    // Nächste Gegner zuerst planen
     final sorted = _enemies()
       ..sort((a, b) {
         final distA = (a.x - player.x).abs() + (a.y - player.y).abs();
@@ -193,9 +208,7 @@ class BoardState extends ChangeNotifier {
 
     for (final enemy in sorted) {
       final bestMove = _bestMoveToward(enemy, player, plannedMoves: moves);
-      if (bestMove != null) {
-        moves[enemy] = bestMove;
-      }
+      if (bestMove != null) moves[enemy] = bestMove;
     }
 
     for (final entry in moves.entries) {
@@ -221,7 +234,6 @@ class BoardState extends ChangeNotifier {
           continue;
         if (board.cells[ny][nx] == CellType.hole) continue;
 
-        // Blockiert wenn ein Gegner dort steht UND sich nicht wegbewegt
         if (_enemies().any(
           (e) =>
               e != enemy &&
@@ -231,8 +243,6 @@ class BoardState extends ChangeNotifier {
         ))
           continue;
 
-        // Blockiert wenn ein anderer Gegner dorthin plant
-        // Ausnahme: Spielerfeld darf von einem angreifenden Gegner besetzt werden
         final isPlayerField = nx == player.x && ny == player.y;
         if (!isPlayerField) {
           if (plannedMoves.entries.any(
@@ -253,14 +263,12 @@ class BoardState extends ChangeNotifier {
 
     if (candidates.isEmpty) return null;
 
-    // Sortierung nach Manhattan für Annäherung
     candidates.sort((a, b) {
       final distA = (a[0] - player.x).abs() + (a[1] - player.y).abs();
       final distB = (b[0] - player.x).abs() + (b[1] - player.y).abs();
       return distA.compareTo(distB);
     });
 
-    // Chebyshev für korrekte Nähe-Prüfung bei diagonaler Bewegung
     final currentDist = max(
       (enemy.x - player.x).abs(),
       (enemy.y - player.y).abs(),
@@ -272,7 +280,6 @@ class BoardState extends ChangeNotifier {
 
     if (bestDist < currentDist) return candidates.first;
 
-    // Flankenposition: Manhattan für Positionierungsvorteil
     final currentFlankDist =
         (enemy.x - player.x).abs() + (enemy.y - player.y).abs();
     final bestFlankDist =

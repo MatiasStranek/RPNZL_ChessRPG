@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../enemy/enemy_rewards.dart';
 
-// ─── Freischaltungs-Konfiguration ──────────────────────────────────────────
+// ─── Freischaltungs-Konfiguration ────────────────────────────────────────────
 const int _baseUnlockedSlots = 4;
 const int _baseMaxEnergy = 4;
 const int _slotsPerLevel = 1;
@@ -12,11 +12,24 @@ const int _energyPerLevel = 1;
 const int _expPerLevel = 10;
 const int _maxLevel = 10;
 
+// ─── CrazyLevel / RageLevel Konfiguration ────────────────────────────────────
+// Wie viele MoveSkill-Kills für einen CrazyLevel-Aufstieg benötigt werden.
+// Analog für RageLevel.
+const int _killsPerCrazyLevel = 5;
+const int _killsPerRageLevel = 5;
+
 class PlayerService {
   static const String _boxName = 'player';
   static const String _goldKey = 'gold';
   static const String _expKey = 'exp';
   static const String _levelKey = 'level';
+
+  // ── Neue Keys für CrazyLevel / RageLevel ──────────────────────────────────
+  static const String _crazyLevelKey = 'crazy_level';
+  static const String _crazyKillsKey =
+      'crazy_kills'; // Kills in aktuellem Level
+  static const String _rageLevelKey = 'rage_level';
+  static const String _rageKillsKey = 'rage_kills';
 
   late Box _box;
   late ValueNotifier<PlayerState> playerNotifier;
@@ -26,7 +39,7 @@ class PlayerService {
     playerNotifier = ValueNotifier(_currentState());
   }
 
-  // ─── Getter ──────────────────────────────────────────────────────────────
+  // ─── Getter: Standard ─────────────────────────────────────────────────────
 
   int get gold => _box.get(_goldKey, defaultValue: 0) as int;
   int get exp => _box.get(_expKey, defaultValue: 0) as int;
@@ -53,7 +66,23 @@ class PlayerService {
 
   int get expInCurrentLevel => exp - expCurrentLevelFloor;
 
-  // ─── Aktionen ────────────────────────────────────────────────────────────
+  // ─── Getter: CrazyLevel / RageLevel ──────────────────────────────────────
+
+  int get crazyLevel => _box.get(_crazyLevelKey, defaultValue: 0) as int;
+  int get crazyKills => _box.get(_crazyKillsKey, defaultValue: 0) as int;
+
+  int get rageLevel => _box.get(_rageLevelKey, defaultValue: 0) as int;
+  int get rageKills => _box.get(_rageKillsKey, defaultValue: 0) as int;
+
+  /// Fortschritt innerhalb des aktuellen CrazyLevels (0.0 – 1.0)
+  double get crazyLevelProgress =>
+      (crazyKills / _killsPerCrazyLevel).clamp(0.0, 1.0);
+
+  /// Fortschritt innerhalb des aktuellen RageLevels (0.0 – 1.0)
+  double get rageLevelProgress =>
+      (rageKills / _killsPerRageLevel).clamp(0.0, 1.0);
+
+  // ─── Aktionen: Standard ───────────────────────────────────────────────────
 
   PlayerState rewardForKill(int enemyLevel) {
     final reward = rewardFor(enemyLevel);
@@ -71,33 +100,84 @@ class PlayerService {
     return true;
   }
 
-  // ─── Cheat-Methoden ──────────────────────────────────────────────────────
+  // ─── Aktionen: CrazyLevel / RageLevel ────────────────────────────────────
 
-  /// Setzt Gold auf 0 und aktualisiert die Anzeige sofort.
+  /// Aufrufen wenn ein Gegner mit einem MoveSkill besiegt wurde.
+  /// Gibt true zurück wenn ein CrazyLevel-Aufstieg stattgefunden hat.
+  bool registerMoveSkillKill() {
+    final newKills = crazyKills + 1;
+    if (newKills >= _killsPerCrazyLevel) {
+      _box.put(_crazyLevelKey, crazyLevel + 1);
+      _box.put(_crazyKillsKey, 0);
+      _notify();
+      return true; // Level-Up!
+    }
+    _box.put(_crazyKillsKey, newKills);
+    _notify();
+    return false;
+  }
+
+  /// Aufrufen wenn ein Gegner mit einem AttackSkill besiegt wurde.
+  /// Gibt true zurück wenn ein RageLevel-Aufstieg stattgefunden hat.
+  bool registerAttackSkillKill() {
+    final newKills = rageKills + 1;
+    if (newKills >= _killsPerRageLevel) {
+      _box.put(_rageLevelKey, rageLevel + 1);
+      _box.put(_rageKillsKey, 0);
+      _notify();
+      return true; // Level-Up!
+    }
+    _box.put(_rageKillsKey, newKills);
+    _notify();
+    return false;
+  }
+
+  // ─── Cheat-Methoden ───────────────────────────────────────────────────────
+
   void resetGold() {
     _box.put(_goldKey, 0);
     _notify();
   }
 
-  /// Gibt 999 Gold und aktualisiert die Anzeige sofort.
   void cheatAddGold() {
     _box.put(_goldKey, gold + 999);
     _notify();
   }
 
-  /// Setzt EXP und Level auf 0 und aktualisiert die Anzeige sofort.
   void resetExp() {
     _box.put(_expKey, 0);
     _box.put(_levelKey, 0);
     _notify();
   }
 
-  /// Gibt 50 EXP (mit Level-Up-Logik) und aktualisiert die Anzeige sofort.
   void cheatAddExp() {
     _addExp(50);
   }
 
-  // ─── Interne Helfer ──────────────────────────────────────────────────────
+  /// Gibt +1 CrazyLevel (Cheat).
+  void cheatAddCrazyLevel() {
+    _box.put(_crazyLevelKey, crazyLevel + 1);
+    _box.put(_crazyKillsKey, 0);
+    _notify();
+  }
+
+  /// Gibt +1 RageLevel (Cheat).
+  void cheatAddRageLevel() {
+    _box.put(_rageLevelKey, rageLevel + 1);
+    _box.put(_rageKillsKey, 0);
+    _notify();
+  }
+
+  /// Setzt CrazyLevel und RageLevel auf 0 zurück (Cheat).
+  void cheatResetSkillLevels() {
+    _box.put(_crazyLevelKey, 0);
+    _box.put(_crazyKillsKey, 0);
+    _box.put(_rageLevelKey, 0);
+    _box.put(_rageKillsKey, 0);
+    _notify();
+  }
+
+  // ─── Interne Helfer ───────────────────────────────────────────────────────
 
   void _addGold(int amount) {
     _box.put(_goldKey, gold + amount);
@@ -128,10 +208,16 @@ class PlayerService {
     expInCurrentLevel: expInCurrentLevel,
     unlockedSlots: unlockedSlots,
     maxEnergy: maxEnergy,
+    crazyLevel: crazyLevel,
+    crazyKills: crazyKills,
+    crazyLevelProgress: crazyLevelProgress,
+    rageLevel: rageLevel,
+    rageKills: rageKills,
+    rageLevelProgress: rageLevelProgress,
   );
 }
 
-// ─── Immutable Snapshot ──────────────────────────────────────────────────────
+// ─── Immutable Snapshot ───────────────────────────────────────────────────────
 
 class PlayerState {
   final int gold;
@@ -143,6 +229,14 @@ class PlayerState {
   final int unlockedSlots;
   final int maxEnergy;
 
+  // ── Neu ───────────────────────────────────────────────────────────────────
+  final int crazyLevel;
+  final int crazyKills;
+  final double crazyLevelProgress;
+  final int rageLevel;
+  final int rageKills;
+  final double rageLevelProgress;
+
   const PlayerState({
     required this.gold,
     required this.exp,
@@ -152,9 +246,16 @@ class PlayerState {
     required this.expInCurrentLevel,
     required this.unlockedSlots,
     required this.maxEnergy,
+    required this.crazyLevel,
+    required this.crazyKills,
+    required this.crazyLevelProgress,
+    required this.rageLevel,
+    required this.rageKills,
+    required this.rageLevelProgress,
   });
 
   @override
   String toString() =>
-      'PlayerState(Lv.$level | $expInCurrentLevel EXP | $gold Gold)';
+      'PlayerState(Lv.$level | $expInCurrentLevel EXP | $gold Gold | '
+      'Crazy $crazyLevel | Rage $rageLevel)';
 }

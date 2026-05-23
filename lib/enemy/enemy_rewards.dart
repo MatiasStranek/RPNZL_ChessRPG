@@ -10,11 +10,11 @@ class EnemyReward {
 /// Belohnungen nach Gegner-Level.
 /// Neue Level einfach hier ergänzen.
 const Map<int, EnemyReward> enemyRewardByLevel = {
-  1: EnemyReward(exp: 1, gold: 5),
-  2: EnemyReward(exp: 3, gold: 12),
-  3: EnemyReward(exp: 6, gold: 25),
-  4: EnemyReward(exp: 10, gold: 40),
-  5: EnemyReward(exp: 15, gold: 60),
+  1: EnemyReward(exp: 1, gold: 1),
+  2: EnemyReward(exp: 2, gold: 2),
+  3: EnemyReward(exp: 3, gold: 3),
+  4: EnemyReward(exp: 4, gold: 4),
+  5: EnemyReward(exp: 5, gold: 5),
 };
 
 /// Fallback für unbekannte Gegner-Level.

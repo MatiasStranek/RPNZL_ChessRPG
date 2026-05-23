@@ -20,8 +20,6 @@ class EnergyService {
     _box = await Hive.openBox(_boxName);
     _applyOfflineRegen();
     energyNotifier = ValueNotifier(energy);
-
-    // Wenn sich das Level ändert → Energie-Cap könnte sich erhöht haben
     playerService.playerNotifier.addListener(_onPlayerLevelChanged);
   }
 
@@ -29,7 +27,6 @@ class EnergyService {
     playerService.playerNotifier.removeListener(_onPlayerLevelChanged);
   }
 
-  /// Aktuelles Maximum aus PlayerService – ändert sich mit dem Level.
   int get maxEnergy => playerService.maxEnergy;
 
   int get energy => (_box.get(_energyKey, defaultValue: maxEnergy) as int)
@@ -59,16 +56,15 @@ class EnergyService {
     }
   }
 
-  /// Wird aufgerufen wenn der Spieler ein Level aufsteigt → Notifier aktualisieren.
   void _onPlayerLevelChanged() {
-    energyNotifier.value =
-        energy; // clamp sorgt dafür dass Wert im neuen Cap liegt
+    energyNotifier.value = energy;
   }
 
-  bool spendEnergy() {
-    if (energy <= 0) return false;
+  // ── amount Parameter neu ──────────────────────────────────────────────────
+  bool spendEnergy({int amount = 1}) {
+    if (energy < amount) return false;
     final wasMax = energy == maxEnergy;
-    _box.put(_energyKey, energy - 1);
+    _box.put(_energyKey, energy - amount);
     if (wasMax) _setLastRegen(DateTime.now());
     energyNotifier.value = energy;
     return true;

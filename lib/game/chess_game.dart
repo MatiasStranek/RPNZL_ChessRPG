@@ -13,6 +13,8 @@ import '../inventory/inventory_service.dart';
 import '../inventory/item_factory.dart';
 import '../player/player_service.dart';
 import '../enemy/enemy_rewards.dart';
+import '../animations/reward_overlay_controller.dart';
+import '../skills/active_skill_service.dart';
 import 'cell_component.dart';
 import 'piece_component.dart';
 import '../enemy/base/enemy_component.dart';
@@ -23,11 +25,16 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
   final EnergyService energyService;
   final InventoryService inventoryService;
   final PlayerService playerService;
+  final ActiveSkillService activeSkillService;
+
   late BoardState state;
   late PieceComponent pieceComponent;
   Vector2 cameraShakeOffset = Vector2.zero();
   bool _gameOver = false;
   bool _inputLocked = false;
+
+  double _visibleFieldsTotal = 8;
+  int _lastKnownLevel = 0;
 
   final Map<PieceModel, EnemyComponent> _enemyComponents = {};
 
@@ -36,14 +43,51 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     required this.energyService,
     required this.inventoryService,
     required this.playerService,
+    required this.activeSkillService,
   });
 
   @override
   Color backgroundColor() => const Color(0xFF2C2C2C);
 
   @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    _applyZoom(size);
+  }
+
+  void _applyZoom(Vector2 size) {
+    final zoom = size.y / (_visibleFieldsTotal * CellComponent.cellSize);
+    camera.viewfinder.zoom = zoom;
+  }
+
+  void setZoomNear() {
+    _visibleFieldsTotal = 8;
+    _applyZoom(camera.viewport.size);
+  }
+
+  void setZoomDefault() {
+    _visibleFieldsTotal = 16;
+    _applyZoom(camera.viewport.size);
+  }
+
+  void setZoomFar() {
+    _visibleFieldsTotal = 22;
+    _applyZoom(camera.viewport.size);
+  }
+
+  /// Wird von SkillButton aufgerufen um die Spielfigur automatisch auszuwählen.
+  void selectPlayerPiece() {
+    final player = board.pieces.firstWhereOrNull(
+      (p) => p.team == PieceTeam.player,
+    );
+    if (player != null) state.selectPiece(player);
+  }
+
+  @override
   Future<void> onLoad() async {
     state = BoardState(board: board);
+    state.activeSkillService = activeSkillService;
+    _lastKnownLevel = playerService.level;
 
     state.onSpawnChanged = (spawned, removed) {
       for (final piece in removed) {
@@ -61,14 +105,26 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     };
 
     state.onEnemyKilled = (enemy) {
-      inventoryService.addItem(ItemFactory.energyDrop());
-      final reward = playerService.rewardForKill(enemy.enemyLevel);
-      debugPrint(
-        'Enemy L${enemy.enemyLevel} besiegt → '
-        '+${enemyRewardByLevel[enemy.enemyLevel]?.exp ?? 1} EXP, '
-        '+${enemyRewardByLevel[enemy.enemyLevel]?.gold ?? 5} Gold | '
-        '$reward',
+      final item = ItemFactory.energyDrop();
+      final added = inventoryService.addItem(item);
+      if (added) {
+        RewardOverlayController.instance.fireItem(item.name);
+      }
+
+      final reward = rewardFor(enemy.enemyLevel);
+      playerService.rewardForKill(enemy.enemyLevel);
+
+      final enemyScreenPos = _enemyScreenPosition(enemy.x, enemy.y);
+      RewardOverlayController.instance.fireGold(
+        reward.gold,
+        position: enemyScreenPos,
       );
+
+      final newLevel = playerService.level;
+      if (newLevel > _lastKnownLevel) {
+        _lastKnownLevel = newLevel;
+        RewardOverlayController.instance.fireLevelUp(newLevel);
+      }
     };
 
     state.onPlayerDefeated = (killer) {
@@ -97,9 +153,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     world.add(pieceComponent);
 
     pieceComponent.onDropped = (gridX, gridY, fallback) {
-      debugPrint('=== onDropped: gridX=$gridX, gridY=$gridY ===');
-      debugPrint('inputLocked: $_inputLocked');
-
       if (_inputLocked) {
         pieceComponent.position = fallback;
         return;
@@ -107,8 +160,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
 
       final player = board.pieces.firstWhere((p) => p.team == PieceTeam.player);
       state.selectedPiece = player;
-      debugPrint('isReachable: ${state.isReachable(gridX, gridY)}');
-      debugPrint('energy: ${energyService.energy}');
 
       if (!state.isReachable(gridX, gridY)) {
         pieceComponent.position = fallback;
@@ -117,21 +168,18 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
         return;
       }
 
-      if (!energyService.spendEnergy()) {
+      final moveCost = activeSkillService.activeSkill?.energyCost ?? 1;
+      if (!energyService.spendEnergy(amount: moveCost)) {
         pieceComponent.position = fallback;
         state.deselectPiece();
         cameraShakeOffset = Vector2(4, 0);
         return;
       }
 
-      debugPrint(
-        'Move wird ausgeführt → player.x=${player.x}, player.y=${player.y}',
-      );
       final oldX = player.x;
       final oldY = player.y;
       state.movePiece(gridX, gridY);
       pieceComponent.moveTo(player.x, player.y);
-      debugPrint('Nach movePiece → player.x=${player.x}, player.y=${player.y}');
 
       Future.delayed(const Duration(milliseconds: 16), () {
         _shakeCamera(oldX, oldY, player.x, player.y);
@@ -167,7 +215,10 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     cameraShakeOffset *= 0.85;
 
     if (!pieceComponent.isDragging) {
-      camera.viewfinder.position = pieceComponent.position + cameraShakeOffset;
+      camera.viewfinder.position =
+          pieceComponent.position +
+          Vector2(CellComponent.cellSize / 2, CellComponent.cellSize / 2) +
+          cameraShakeOffset;
     }
 
     if (_inputLocked && !_anyoneMoving()) {
@@ -212,11 +263,13 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
 
     if (!state.isReachable(gridX, gridY)) {
       cameraShakeOffset = Vector2(4, 0);
+      // Skill bleibt aktiv, nur Auswahl entfernen
       state.deselectPiece();
       return;
     }
 
-    if (!energyService.spendEnergy()) {
+    final moveCost = activeSkillService.activeSkill?.energyCost ?? 1;
+    if (!energyService.spendEnergy(amount: moveCost)) {
       cameraShakeOffset = Vector2(4, 0);
       return;
     }
@@ -251,5 +304,18 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     if (dir.length == 0) return;
     dir.normalize();
     cameraShakeOffset = -dir * 16.0;
+  }
+
+  Offset _enemyScreenPosition(int gridX, int gridY) {
+    final screenSize = camera.viewport.size;
+    final cellSize = CellComponent.cellSize;
+    final worldX = gridX * cellSize + cellSize / 2;
+    final worldY = gridY * cellSize + cellSize / 2;
+    final camPos = camera.viewfinder.position;
+    final screenCenterX = screenSize.x / 2;
+    final screenCenterY = screenSize.y / 2;
+    final screenX = screenCenterX + (worldX - camPos.x);
+    final screenY = screenCenterY + (worldY - camPos.y);
+    return Offset(screenX, screenY);
   }
 }
