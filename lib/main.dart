@@ -11,6 +11,7 @@ import 'inventory/inventory_display.dart';
 import 'inventory/item_effect_handler.dart';
 import 'player/player_service.dart';
 import 'player/player_display.dart';
+import 'cheat/cheat_menu.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,10 +51,8 @@ void main() async {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Energie (bestehend)
                   EnergyDisplay(energyService: energyService),
                   const SizedBox(height: 4),
-                  // EXP / Level / Gold (neu) – direkt darunter
                   PlayerDisplay(playerService: playerService),
                 ],
               ),
@@ -63,6 +62,13 @@ void main() async {
             InventoryDisplay(
               inventoryService: inventoryService,
               effectHandler: effectHandler,
+            ),
+
+            // ── Cheat Menü oben rechts ─────────────────────────────────
+            CheatMenuButton(
+              energyService: energyService,
+              playerService: playerService,
+              inventoryService: inventoryService,
             ),
           ],
         ),

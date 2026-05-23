@@ -5,12 +5,26 @@ import 'item_effect_handler.dart';
 import 'item_model.dart';
 
 // ─── Konfiguration ────────────────────────────────────────────────────────────
-// Wie viele Slots gehören zur Hotbar (untere Reihe, immer sichtbar)?
 const int _hotbarSlots = 8;
-// Slotgröße
 const double _slotSize = 48;
 const double _slotMargin = 4;
+const int _extendedRows = 3;
+const int _extendedCols = 8;
+const double _slotStep = _slotSize + _slotMargin * 2;
+const double _padH = 4.0;
+const double _borderW = 1.5;
+// Innenbreite: 8 Slots inkl. Margins + horizontales Padding
+// Containerbreite: Innenbreite + 2 × Border
+const double _innerWidth = _hotbarSlots * _slotStep + _padH * 2;
+const double _containerWidth = _innerWidth + _borderW * 2;
 
+const List<ItemCategory> _tabs = [
+  ItemCategory.energy,
+  ItemCategory.items,
+  ItemCategory.weapons,
+  ItemCategory.armor,
+  ItemCategory.potions,
+];
 // ─────────────────────────────────────────────────────────────────────────────
 
 class InventoryDisplay extends StatefulWidget {
@@ -27,23 +41,22 @@ class InventoryDisplay extends StatefulWidget {
   State<InventoryDisplay> createState() => _InventoryDisplayState();
 }
 
-class _InventoryDisplayState extends State<InventoryDisplay>
-    with SingleTickerProviderStateMixin {
+class _InventoryDisplayState extends State<InventoryDisplay> {
   bool _expanded = false;
+  ItemCategory _activeTab = _tabs.first;
 
-  // Anzahl der Erweiterungs-Slots (Slots oberhalb der Hotbar)
-  int get _extendedSlots => InventoryService.totalSlots - _hotbarSlots;
-
-  // Höhe des ausfahrbaren Panels inkl. Padding
-  // NEU
-  static const int _extendedRows = 3;
-  static const int _extendedCols = 8;
-
-  double get _panelHeight => _extendedSlots > 0
-      ? (_extendedRows * (_slotSize + _slotMargin * 2) + 20)
-      : 0;
+  // Exakte Höhen – werden für AnimatedContainer verwendet
+  static const double _tabBarH = 30.0;
+  static const double _padV = 6.0;
+  double get _panelH => _extendedRows * _slotStep + _padV * 2;
+  double get _hotbarH => _slotSize + _padV * 2;
 
   void _toggle() => setState(() => _expanded = !_expanded);
+
+  void _selectTab(ItemCategory cat) => setState(() {
+    _activeTab = cat;
+    _expanded = true;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -51,169 +64,192 @@ class _InventoryDisplayState extends State<InventoryDisplay>
       alignment: Alignment.bottomCenter,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 24),
-        child: ValueListenableBuilder<List<ItemModel?>>(
-          valueListenable: widget.inventoryService.inventoryNotifier,
-          builder: (context, slots, _) {
-            final unlockedSlots = widget.inventoryService.unlockedSlots;
+        child: ValueListenableBuilder<Set<ItemCategory>>(
+          valueListenable: widget.inventoryService.unlockedCategoriesNotifier,
+          builder: (context, unlockedCats, _) {
+            return ValueListenableBuilder<List<ItemModel?>>(
+              valueListenable: widget.inventoryService.inventoryNotifier,
+              builder: (context, slots, _) {
+                final unlockedSlots = widget.inventoryService.unlockedSlots;
 
-            // ── Erweiterungs-Slots (Indizes 4–7) ──
-            // NEU – Extended-Slot-Widgets als 3 Reihen à 8 Slots
-            final extendedRows = List.generate(_extendedRows, (row) {
-              final rowSlots = List.generate(_extendedCols, (col) {
-                final index = _hotbarSlots + row * _extendedCols + col;
-                if (index >= InventoryService.totalSlots)
-                  return const SizedBox.shrink();
-                return _SlotWidget(
-                  index: index,
-                  item: slots[index],
-                  unlocked: index < unlockedSlots,
-                  inventoryService: widget.inventoryService,
-                  effectHandler: widget.effectHandler,
-                  onDrop: (from) =>
-                      widget.inventoryService.moveItem(from, index),
-                );
-              });
-              return Row(mainAxisSize: MainAxisSize.min, children: rowSlots);
-            });
-
-            // ── Hotbar-Slots (Indizes 0–3) ──
-            final hotbarSlotWidgets = List.generate(_hotbarSlots, (i) {
-              return _SlotWidget(
-                index: i,
-                item: slots[i],
-                unlocked: i < unlockedSlots,
-                inventoryService: widget.inventoryService,
-                effectHandler: widget.effectHandler,
-                onDrop: (from) => widget.inventoryService.moveItem(from, i),
-              );
-            });
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // ── Ausfahrbares Erweiterungs-Panel ────────────────────────
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeInOutCubic,
-                  height: _expanded ? _panelHeight : 0,
-                  child: SingleChildScrollView(
-                    // verhindert Flutter-Layout-Fehler während Animation
-                    physics: const NeverScrollableScrollPhysics(),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 6,
-                        horizontal: 4,
-                      ),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF2C2C2C),
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(10),
-                        ),
-                        border: Border(
-                          top: BorderSide(color: Color(0xFF555555), width: 1.5),
-                          left: BorderSide(
-                            color: Color(0xFF555555),
-                            width: 1.5,
-                          ),
-                          right: BorderSide(
-                            color: Color(0xFF555555),
-                            width: 1.5,
-                          ),
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: extendedRows,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // ── Hotbar + Toggle-Button (bleibt immer sichtbar) ─────────
-                IntrinsicHeight(
-                  child: Row(
+                // ── Extended-Slots ──────────────────────────────────────
+                final extendedRows = List.generate(_extendedRows, (row) {
+                  final rowSlots = List.generate(_extendedCols, (col) {
+                    final index = _hotbarSlots + row * _extendedCols + col;
+                    if (index >= InventoryService.totalSlots) {
+                      return const SizedBox.shrink();
+                    }
+                    final item = slots[index];
+                    final visible = item == null || item.category == _activeTab;
+                    final tabUnlocked = unlockedCats.contains(_activeTab);
+                    final slotUnlocked = tabUnlocked && index < unlockedSlots;
+                    return _SlotWidget(
+                      index: index,
+                      item: visible ? item : null,
+                      unlocked: slotUnlocked,
+                      activeCategory: _activeTab,
+                      inventoryService: widget.inventoryService,
+                      effectHandler: widget.effectHandler,
+                      onDrop: (from) =>
+                          widget.inventoryService.moveItem(from, index),
+                    );
+                  });
+                  return Row(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Hotbar-Container
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 6,
-                          horizontal: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E1E1E),
-                          borderRadius: BorderRadius.only(
-                            // Ecken nur abrunden wenn Panel zu ist
-                            topLeft: _expanded
-                                ? Radius.zero
-                                : const Radius.circular(10),
-                            topRight: _expanded
-                                ? Radius.zero
-                                : const Radius.circular(10),
-                            bottomLeft: const Radius.circular(10),
-                            bottomRight: const Radius.circular(10),
-                          ),
-                          border: Border.all(
-                            color: const Color(0xFF555555),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: hotbarSlotWidgets,
-                        ),
-                      ),
+                    children: rowSlots,
+                  );
+                });
 
-                      const SizedBox(width: 6),
+                // ── Hotbar-Slots ────────────────────────────────────────
+                final hotbarSlotWidgets = List.generate(_hotbarSlots, (i) {
+                  return _SlotWidget(
+                    index: i,
+                    item: slots[i],
+                    unlocked: i < unlockedSlots,
+                    activeCategory: null,
+                    inventoryService: widget.inventoryService,
+                    effectHandler: widget.effectHandler,
+                    onDrop: (from) => widget.inventoryService.moveItem(from, i),
+                  );
+                });
 
-                      // ── Toggle-Button ────────────────────────────────────
-                      GestureDetector(
-                        onTap: _toggle,
-                        child: AnimatedContainer(
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ── Panel (TabBar + Slots) ──────────────────────
+                        AnimatedContainer(
                           duration: const Duration(milliseconds: 260),
                           curve: Curves.easeInOutCubic,
-                          width: 28,
+                          width: _containerWidth,
+                          height: _expanded ? _tabBarH + _panelH : 0,
+                          clipBehavior: Clip.hardEdge,
                           decoration: BoxDecoration(
-                            color: _expanded
-                                ? const Color(0xFF444444)
-                                : const Color(0xFF2E2E2E),
-                            borderRadius: BorderRadius.circular(10),
+                            color: const Color(0xFF2C2C2C),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(10),
+                              topRight: Radius.circular(10),
+                            ),
                             border: Border.all(
-                              color: _expanded
-                                  ? const Color(0xFF888888)
-                                  : const Color(0xFF555555),
+                              color: const Color(0xFF555555),
                               width: 1.5,
                             ),
-                            boxShadow: _expanded
-                                ? [
-                                    const BoxShadow(
-                                      color: Colors.black38,
-                                      blurRadius: 6,
-                                      offset: Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
                           ),
-                          child: Center(
-                            child: AnimatedRotation(
-                              turns: _expanded ? 0.5 : 0.0,
-                              duration: const Duration(milliseconds: 260),
-                              curve: Curves.easeInOutCubic,
-                              child: const Icon(
-                                Icons.keyboard_arrow_up_rounded,
-                                color: Color(0xFFAAAAAA),
-                                size: 20,
-                              ),
+                          child: OverflowBox(
+                            minHeight: 0,
+                            maxHeight: _tabBarH + _panelH,
+                            alignment: Alignment.topCenter,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // ── Tab-Leiste ──────────────────────────
+                                SizedBox(
+                                  height: _tabBarH,
+                                  child: _TabBar(
+                                    tabs: _tabs,
+                                    active: _activeTab,
+                                    onSelect: _selectTab,
+                                  ),
+                                ),
+                                // ── Slot-Grid ───────────────────────────
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    vertical: _padV,
+                                    horizontal: _padH,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: extendedRows,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // ── Hotbar – immer sichtbar ─────────────────────
+                        Container(
+                          width: _containerWidth,
+                          padding: EdgeInsets.symmetric(
+                            vertical: _padV,
+                            horizontal: _padH,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E1E1E),
+                            borderRadius: BorderRadius.only(
+                              topLeft: _expanded
+                                  ? Radius.zero
+                                  : const Radius.circular(10),
+                              topRight: _expanded
+                                  ? Radius.zero
+                                  : const Radius.circular(10),
+                              bottomLeft: const Radius.circular(10),
+                              bottomRight: const Radius.circular(10),
+                            ),
+                            border: Border.all(
+                              color: const Color(0xFF555555),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: hotbarSlotWidgets,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(width: 6),
+
+                    // ── Toggle-Button ───────────────────────────────────
+                    GestureDetector(
+                      onTap: _toggle,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeInOutCubic,
+                        width: 28,
+                        height: _hotbarH,
+                        decoration: BoxDecoration(
+                          color: _expanded
+                              ? const Color(0xFF444444)
+                              : const Color(0xFF2E2E2E),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _expanded
+                                ? const Color(0xFF888888)
+                                : const Color(0xFF555555),
+                            width: 1.5,
+                          ),
+                          boxShadow: _expanded
+                              ? [
+                                  const BoxShadow(
+                                    color: Colors.black38,
+                                    blurRadius: 6,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Center(
+                          child: AnimatedRotation(
+                            turns: _expanded ? 0.5 : 0.0,
+                            duration: const Duration(milliseconds: 260),
+                            curve: Curves.easeInOutCubic,
+                            child: const Icon(
+                              Icons.keyboard_arrow_up_rounded,
+                              color: Color(0xFFAAAAAA),
+                              size: 20,
                             ),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ],
+                    ),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -222,12 +258,83 @@ class _InventoryDisplayState extends State<InventoryDisplay>
   }
 }
 
-// ─── _SlotWidget (unverändert, nur ausgelagert) ───────────────────────────────
+// ─── Tab-Leiste ───────────────────────────────────────────────────────────────
+
+class _TabBar extends StatelessWidget {
+  final List<ItemCategory> tabs;
+  final ItemCategory active;
+  final ValueChanged<ItemCategory> onSelect;
+
+  const _TabBar({
+    required this.tabs,
+    required this.active,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 30,
+      decoration: const BoxDecoration(
+        color: Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
+        border: Border(
+          top: BorderSide(color: Color(0xFF555555), width: 1.5),
+          left: BorderSide(color: Color(0xFF555555), width: 1.5),
+          right: BorderSide(color: Color(0xFF555555), width: 1.5),
+        ),
+      ),
+      child: Row(
+        children: tabs.map((cat) {
+          final isActive = cat == active;
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onSelect(cat),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? const Color(0xFF2C2C2C)
+                      : Colors.transparent,
+                  border: isActive
+                      ? const Border(
+                          bottom: BorderSide(
+                            color: Color(0xFFFFD700),
+                            width: 2,
+                          ),
+                        )
+                      : null,
+                ),
+                child: Center(
+                  child: Text(
+                    '${cat.icon} ${cat.label}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: isActive
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                      color: isActive ? Colors.white : const Color(0xFF777777),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ─── _SlotWidget ──────────────────────────────────────────────────────────────
 
 class _SlotWidget extends StatefulWidget {
   final int index;
   final ItemModel? item;
   final bool unlocked;
+  final ItemCategory? activeCategory;
   final InventoryService inventoryService;
   final ItemEffectHandler effectHandler;
   final ValueChanged<int> onDrop;
@@ -236,6 +343,7 @@ class _SlotWidget extends StatefulWidget {
     required this.index,
     required this.item,
     required this.unlocked,
+    required this.activeCategory,
     required this.inventoryService,
     required this.effectHandler,
     required this.onDrop,
@@ -248,6 +356,17 @@ class _SlotWidget extends StatefulWidget {
 class _SlotWidgetState extends State<_SlotWidget> {
   OverlayEntry? _overlayEntry;
   final LayerLink _layerLink = LayerLink();
+
+  bool _canAccept(int fromIndex) {
+    if (!widget.unlocked) return false;
+    if (fromIndex == widget.index) return false;
+    if (widget.activeCategory != null) {
+      final draggedItem = widget.inventoryService.slots[fromIndex];
+      if (draggedItem == null) return false;
+      if (draggedItem.category != widget.activeCategory) return false;
+    }
+    return true;
+  }
 
   void _showMenu() {
     _removeMenu();
@@ -371,7 +490,6 @@ class _SlotWidgetState extends State<_SlotWidget> {
   @override
   Widget build(BuildContext context) {
     final tierColor = widget.item?.tierColor ?? Colors.transparent;
-
     final slotBorderColor = widget.item != null
         ? tierColor.withOpacity(0.7)
         : widget.unlocked
@@ -381,8 +499,7 @@ class _SlotWidgetState extends State<_SlotWidget> {
     return CompositedTransformTarget(
       link: _layerLink,
       child: DragTarget<int>(
-        onWillAcceptWithDetails: (details) =>
-            widget.unlocked && details.data != widget.index,
+        onWillAcceptWithDetails: (details) => _canAccept(details.data),
         onAcceptWithDetails: (details) => widget.onDrop(details.data),
         builder: (context, candidateData, _) {
           final isHovered = candidateData.isNotEmpty;
@@ -475,7 +592,7 @@ class _SlotWidgetState extends State<_SlotWidget> {
   }
 }
 
-// ─── _ItemMenuOverlay (unverändert) ──────────────────────────────────────────
+// ─── _ItemMenuOverlay ─────────────────────────────────────────────────────────
 
 class _ItemMenuOverlay extends StatelessWidget {
   final LayerLink layerLink;

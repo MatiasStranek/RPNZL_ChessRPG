@@ -9,11 +9,9 @@ class ItemFactory {
     id: 'energy_drop',
     type: ItemType.drop,
     name: 'Energie x1',
+    category: ItemCategory.energy,
     icon: Icons.bolt,
     effect: const ItemEffect(restoreEnergy: 1),
     upgradesTo: energyUpgrade1,
   );
-
-  // Weitere Basis-Items hier ergänzen:
-  // static ItemModel shieldDrop() => ItemModel(...)
 }

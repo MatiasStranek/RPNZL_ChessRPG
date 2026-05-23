@@ -23,11 +23,23 @@ class InventoryService {
     List.filled(totalSlots, null),
   );
 
+  // ── Kategorie-Freischaltung ───────────────────────────────────────────────
+  final ValueNotifier<Set<ItemCategory>> unlockedCategoriesNotifier =
+      ValueNotifier({ItemCategory.energy});
+
+  bool isCategoryUnlocked(ItemCategory cat) =>
+      unlockedCategoriesNotifier.value.contains(cat);
+
+  void unlockCategory(ItemCategory cat) {
+    final current = Set<ItemCategory>.from(unlockedCategoriesNotifier.value);
+    if (current.add(cat)) {
+      unlockedCategoriesNotifier.value = current;
+    }
+  }
+
   Future<void> init() async {
     _box = await Hive.openBox<String>(_boxName);
     _loadFromHive();
-
-    // Wenn sich das Level ändert → unlockedSlots könnte sich geändert haben
     playerService.playerNotifier.addListener(_onPlayerLevelChanged);
   }
 
@@ -35,8 +47,6 @@ class InventoryService {
     playerService.playerNotifier.removeListener(_onPlayerLevelChanged);
   }
 
-  /// Freigeschaltete Slots kommen direkt vom PlayerService.
-  /// Sinkt das Level → Slots sperren sich automatisch wieder.
   int get unlockedSlots => playerService.unlockedSlots.clamp(0, totalSlots);
 
   List<ItemModel?> get slots => List.unmodifiable(_slots);
@@ -64,11 +74,9 @@ class InventoryService {
     if (slotIndex < 0 || slotIndex >= totalSlots) return null;
     final item = _slots[slotIndex];
     if (item == null) return null;
-
     _slots[slotIndex] = null;
     _save();
     _notify();
-
     return item.effect;
   }
 
@@ -79,16 +87,15 @@ class InventoryService {
         toIndex < 0 ||
         toIndex >= totalSlots)
       return;
-    if (toIndex >= unlockedSlots) return; // gesperrter Slot → kein Move
+    if (toIndex >= unlockedSlots) return;
 
     final from = _slots[fromIndex];
-    final to = _slots[toIndex];
+    if (from == null) return;
 
-    // Upgrade: gleiche ID + upgradesTo vorhanden
-    if (from != null &&
-        to != null &&
-        from.id == to.id &&
-        from.upgradesTo != null) {
+    final to = _slots[toIndex];
+    if (to != null && from.category != to.category) return;
+
+    if (to != null && from.id == to.id && from.upgradesTo != null) {
       _slots[toIndex] = from.upgradesTo!();
       _slots[fromIndex] = null;
       _save();
@@ -96,8 +103,7 @@ class InventoryService {
       return;
     }
 
-    // Normales Verschieben / Tauschen
-    _slots[toIndex] = _slots[fromIndex];
+    _slots[toIndex] = from;
     _slots[fromIndex] = to;
     _save();
     _notify();
@@ -105,16 +111,41 @@ class InventoryService {
 
   bool get isFull => _slots.sublist(0, unlockedSlots).every((s) => s != null);
 
-  // ─── Level-Änderung ──────────────────────────────────────────────────────
+  // ─── Cheat-Methoden ───────────────────────────────────────────────────────
 
-  void _onPlayerLevelChanged() {
-    // Items in jetzt gesperrten Slots droppen (auf den Boden fallen lassen)
-    // oder einfach den Notifier aktualisieren damit die UI neu zeichnet.
-    // Hier nur UI-Update – Items bleiben in _slots erhalten falls Level wieder steigt.
+  /// Entfernt alle Items aus allen Slots und aktualisiert sofort.
+  void clearAll() {
+    for (int i = 0; i < totalSlots; i++) {
+      _slots[i] = null;
+    }
+    _box.clear();
     _notify();
   }
 
-  // ─── Hive ────────────────────────────────────────────────────────────────
+  /// Entfernt Items die in gesperrten Slots liegen (z.B. nach Level-Reset).
+  /// Wird automatisch aufgerufen wenn sich unlockedSlots verringert.
+  void removeItemsInLockedSlots() {
+    final unlocked = unlockedSlots;
+    bool changed = false;
+    for (int i = unlocked; i < totalSlots; i++) {
+      if (_slots[i] != null) {
+        _slots[i] = null;
+        changed = true;
+      }
+    }
+    if (changed) {
+      _save();
+      _notify();
+    }
+  }
+
+  // ─── Interne Helfer ───────────────────────────────────────────────────────
+
+  void _onPlayerLevelChanged() {
+    // Bei jedem Level-Wechsel prüfen ob Items in gesperrten Slots liegen
+    removeItemsInLockedSlots();
+    _notify();
+  }
 
   void _save() {
     for (int i = 0; i < totalSlots; i++) {

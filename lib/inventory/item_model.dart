@@ -4,10 +4,55 @@ import 'item_effect.dart';
 
 enum ItemType { drop }
 
+/// Bestimmt in welchem Inventar-Tab das Item erscheint.
+/// Jedes Item gehört genau einer Kategorie an.
+enum ItemCategory {
+  energy, // ⚡ Energie
+  items, // 🎒 Items
+  weapons, // ⚔️ Waffen
+  armor, // 🛡️ Rüstung
+  potions, // 🧪 Tränke
+}
+
+extension ItemCategoryExtension on ItemCategory {
+  String get label {
+    switch (this) {
+      case ItemCategory.energy:
+        return 'Energie';
+      case ItemCategory.items:
+        return 'Items';
+      case ItemCategory.weapons:
+        return 'Waffen';
+      case ItemCategory.armor:
+        return 'Rüstung';
+      case ItemCategory.potions:
+        return 'Tränke';
+    }
+  }
+
+  String get icon {
+    switch (this) {
+      case ItemCategory.energy:
+        return '⚡';
+      case ItemCategory.items:
+        return '🎒';
+      case ItemCategory.weapons:
+        return '⚔️';
+      case ItemCategory.armor:
+        return '🛡️';
+      case ItemCategory.potions:
+        return '🧪';
+    }
+  }
+}
+
 class ItemModel {
   final String id;
   final ItemType type;
   final String name;
+
+  /// Inventar-Kategorie – entscheidet in welchem Tab das Item angezeigt wird.
+  final ItemCategory category;
 
   /// Kann ein [IconData] (z.B. Icons.shield) oder ein [String] (z.B. '🧪') sein.
   /// Wenn null, wird ein Fallback-Emoji angezeigt.
@@ -27,6 +72,7 @@ class ItemModel {
     required this.id,
     required this.type,
     required this.name,
+    required this.category,
     this.icon,
     this.effect,
     this.upgradesTo,
@@ -34,21 +80,14 @@ class ItemModel {
   });
 
   /// Farbe basierend auf dem Level – durchläuft das gesamte Farbspektrum.
-  ///
-  /// Level 1  → Grün
-  /// Level 50 → Gold/Weiß (Transcendent)
-  /// Dazwischen: Cyan → Blau → Violett → Rot → Orange → Gold
-  /// Farbe basierend auf dem Level.
-  /// Level 1 → Gelb, dann durch das Spektrum: Grün → Cyan → Blau → Violett → Rot → Orange → Gold → Weiß
   Color get tierColor {
     const int maxSoftLevel = 50;
-    const double startHue = 50.0; // Gelb
-    const double totalRotation = 360.0; // einmal ums gesamte Rad
+    const double startHue = 50.0;
+    const double totalRotation = 360.0;
 
     final double t = ((level - 1) / (maxSoftLevel - 1)).clamp(0.0, 1.0);
     final double rawHue = (startHue + t * totalRotation) % 360;
 
-    // Ab maxSoftLevel: Sättigung sinkt → wirkt weißlicher (Transcendent)
     final double saturation = level >= maxSoftLevel
         ? (1.0 - ((level - maxSoftLevel) / 50).clamp(0.0, 0.7))
         : 1.0;
