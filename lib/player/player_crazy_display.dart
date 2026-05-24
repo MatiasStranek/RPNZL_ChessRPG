@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'player_service.dart';
 import 'player_hud_pill.dart';
 
-const int _killsPerCrazyLevel = 5;
-
 class PlayerCrazyDisplay extends StatelessWidget {
   final PlayerService playerService;
 
@@ -14,6 +12,9 @@ class PlayerCrazyDisplay extends StatelessWidget {
     return ValueListenableBuilder<PlayerState>(
       valueListenable: playerService.playerNotifier,
       builder: (context, state, _) {
+        // Schwelle für das aktuelle CrazyLevel
+        final expCeil = playerService.crazyExpCeil;
+
         return HudPill(
           children: [
             const Text('💨', style: TextStyle(fontSize: 14)),
@@ -33,7 +34,7 @@ class PlayerCrazyDisplay extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Text(
-              '${state.crazyKills}/$_killsPerCrazyLevel',
+              '${state.crazyExpInCurrentLevel}/$expCeil',
               style: const TextStyle(color: Colors.white70, fontSize: 11),
             ),
           ],

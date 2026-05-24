@@ -14,11 +14,14 @@ import '../inventory/item_factory.dart';
 import '../player/player_service.dart';
 import '../enemy/enemy_rewards.dart';
 import '../animations/reward_overlay_controller.dart';
+import '../animations/dust_animation_component.dart';
 import '../skills/active_skill_service.dart';
+import '../skills/skill_service.dart';
 import 'cell_component.dart';
 import 'piece_component.dart';
 import '../enemy/base/enemy_component.dart';
 import '../enemy/types/level1/level1_enemy_component.dart';
+import 'dart:math';
 
 class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
   final BoardModel board;
@@ -26,6 +29,7 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
   final InventoryService inventoryService;
   final PlayerService playerService;
   final ActiveSkillService activeSkillService;
+  final SkillService skillService;
 
   late BoardState state;
   late PieceComponent pieceComponent;
@@ -35,8 +39,10 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
 
   double _visibleFieldsTotal = 8;
   int _lastKnownLevel = 0;
+  int _lastKnownCrazyLevel = 0;
 
   final Map<PieceModel, EnemyComponent> _enemyComponents = {};
+  final Random _random = Random();
 
   ChessGame({
     required this.board,
@@ -44,6 +50,7 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     required this.inventoryService,
     required this.playerService,
     required this.activeSkillService,
+    required this.skillService,
   });
 
   @override
@@ -75,7 +82,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     _applyZoom(camera.viewport.size);
   }
 
-  /// Wird von SkillButton aufgerufen um die Spielfigur automatisch auszuwählen.
   void selectPlayerPiece() {
     final player = board.pieces.firstWhereOrNull(
       (p) => p.team == PieceTeam.player,
@@ -88,10 +94,13 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     state = BoardState(board: board);
     state.activeSkillService = activeSkillService;
     _lastKnownLevel = playerService.level;
+    _lastKnownCrazyLevel = playerService.crazyLevel;
 
     state.onSpawnChanged = (spawned, removed) {
       for (final piece in removed) {
-        _enemyComponents.remove(piece)?.removeFromParent();
+        // comp aus Map holen (einmal!) und Animation + Entfernen aufrufen
+        final comp = _enemyComponents.remove(piece);
+        comp?.playDeathAnimation();
       }
       for (final piece in spawned) {
         _addEnemy(piece);
@@ -105,12 +114,16 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     };
 
     state.onEnemyKilled = (enemy) {
-      final item = ItemFactory.energyDrop();
-      final added = inventoryService.addItem(item);
-      if (added) {
-        RewardOverlayController.instance.fireItem(item.name);
+      // ── Item Drop ────────────────────────────────────────────────────────
+      if (_random.nextDouble() < 0.20) {
+        final item = ItemFactory.energyDrop();
+        final added = inventoryService.addItem(item);
+        if (added) {
+          RewardOverlayController.instance.fireItem(item.name);
+        }
       }
 
+      // ── Gold & Standard-EXP ──────────────────────────────────────────────
       final reward = rewardFor(enemy.enemyLevel);
       playerService.rewardForKill(enemy.enemyLevel);
 
@@ -120,10 +133,27 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
         position: enemyScreenPos,
       );
 
+      // ── CrazyExp vergeben (nur bei aktivem MoveSkill) ────────────────────
+      if (activeSkillService.isActive) {
+        final crazyExp = crazyExpFor(enemy.enemyLevel);
+        final crazyLeveledUp = playerService.addCrazyExp(crazyExp);
+
+        if (crazyLeveledUp) {
+          final newCrazyLevel = playerService.crazyLevel;
+          _lastKnownCrazyLevel = newCrazyLevel;
+          RewardOverlayController.instance.fireLevelUp(newCrazyLevel);
+          skillService.checkAndUnlockAll();
+        }
+      }
+
+      // ── Player-Level-Up prüfen ───────────────────────────────────────────
+      skillService.checkAndUnlockAll();
+
       final newLevel = playerService.level;
       if (newLevel > _lastKnownLevel) {
         _lastKnownLevel = newLevel;
         RewardOverlayController.instance.fireLevelUp(newLevel);
+        skillService.checkAndUnlockAll();
       }
     };
 
@@ -168,12 +198,15 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
         return;
       }
 
-      final moveCost = activeSkillService.activeSkill?.energyCost ?? 1;
-      if (!energyService.spendEnergy(amount: moveCost)) {
-        pieceComponent.position = fallback;
-        state.deselectPiece();
-        cameraShakeOffset = Vector2(4, 0);
-        return;
+      // ── Energie nur bei aktivem Skill abziehen ───────────────────────────
+      if (activeSkillService.isActive) {
+        final moveCost = activeSkillService.activeSkill!.energyCost;
+        if (!energyService.spendEnergy(amount: moveCost)) {
+          pieceComponent.position = fallback;
+          state.deselectPiece();
+          cameraShakeOffset = Vector2(4, 0);
+          return;
+        }
       }
 
       final oldX = player.x;
@@ -263,15 +296,17 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
 
     if (!state.isReachable(gridX, gridY)) {
       cameraShakeOffset = Vector2(4, 0);
-      // Skill bleibt aktiv, nur Auswahl entfernen
       state.deselectPiece();
       return;
     }
 
-    final moveCost = activeSkillService.activeSkill?.energyCost ?? 1;
-    if (!energyService.spendEnergy(amount: moveCost)) {
-      cameraShakeOffset = Vector2(4, 0);
-      return;
+    // ── Energie nur bei aktivem Skill abziehen ───────────────────────────
+    if (activeSkillService.isActive) {
+      final moveCost = activeSkillService.activeSkill!.energyCost;
+      if (!energyService.spendEnergy(amount: moveCost)) {
+        cameraShakeOffset = Vector2(4, 0);
+        return;
+      }
     }
 
     final oldX = player.x;
@@ -295,6 +330,13 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
       1 => Level1EnemyComponent(piece: piece),
       _ => Level1EnemyComponent(piece: piece),
     };
+
+    // Staubanimation direkt in der World spawnen,
+    // unabhängig vom Lifecycle der Enemy-Komponente
+    comp.onPlayDeathEffect = (pos) {
+      world.add(DustAnimationComponent(cellPosition: pos));
+    };
+
     _enemyComponents[piece] = comp;
     world.add(comp);
   }

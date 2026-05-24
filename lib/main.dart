@@ -33,7 +33,6 @@ void main() async {
   final skillService = SkillService(playerService: playerService);
   await skillService.init();
 
-  // ActiveSkillService vor ChessGame erstellen
   final activeSkillService = ActiveSkillService();
 
   final effectHandler = ItemEffectHandler(energyService: energyService);
@@ -45,6 +44,7 @@ void main() async {
     inventoryService: inventoryService,
     playerService: playerService,
     activeSkillService: activeSkillService,
+    skillService: skillService,
   );
 
   final hudVisible = ValueNotifier<bool>(true);
@@ -100,6 +100,7 @@ void main() async {
             SkillButton(
               skillService: skillService,
               activeSkillService: activeSkillService,
+              energyService: energyService,
               onSkillActivated: () => game.selectPlayerPiece(),
             ),
 
@@ -150,6 +151,7 @@ void main() async {
                                 energyService: energyService,
                                 playerService: playerService,
                                 inventoryService: inventoryService,
+                                skillService: skillService,
                               ),
                             ),
                             child: Container(

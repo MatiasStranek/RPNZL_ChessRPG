@@ -8,7 +8,6 @@ class EnemyReward {
 }
 
 /// Belohnungen nach Gegner-Level.
-/// Neue Level einfach hier ergänzen.
 const Map<int, EnemyReward> enemyRewardByLevel = {
   1: EnemyReward(exp: 1, gold: 1),
   2: EnemyReward(exp: 2, gold: 2),
@@ -23,3 +22,24 @@ const EnemyReward defaultEnemyReward = EnemyReward(exp: 1, gold: 5);
 /// Hilfsfunktion – gibt die Belohnung für ein gegebenes Gegner-Level zurück.
 EnemyReward rewardFor(int enemyLevel) =>
     enemyRewardByLevel[enemyLevel] ?? defaultEnemyReward;
+
+// ─── CrazyExp-Tabelle ─────────────────────────────────────────────────────────
+
+/// Feste CrazyExp-Belohnung pro Gegner-Level.
+/// Hier kannst du jeden Wert individuell anpassen.
+const Map<int, int> crazyExpByEnemyLevel = {
+  1: 5,
+  2: 12,
+  3: 20,
+  4: 30,
+  5: 45,
+  6: 60,
+  7: 80,
+  8: 100,
+  9: 125,
+  10: 150,
+};
+
+/// Fallback wenn Gegner-Level nicht in der Tabelle steht.
+int crazyExpFor(int enemyLevel) =>
+    crazyExpByEnemyLevel[enemyLevel] ?? (enemyLevel * 8);

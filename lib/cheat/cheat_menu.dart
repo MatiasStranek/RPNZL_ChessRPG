@@ -4,11 +4,13 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../energy/energy_service.dart';
 import '../player/player_service.dart';
 import '../inventory/inventory_service.dart';
+import '../skills/skill_service.dart';
 
 class CheatMenuButton extends StatelessWidget {
   final EnergyService energyService;
   final PlayerService playerService;
   final InventoryService inventoryService;
+  final SkillService skillService;
   final bool enabled;
 
   const CheatMenuButton({
@@ -16,33 +18,36 @@ class CheatMenuButton extends StatelessWidget {
     required this.energyService,
     required this.playerService,
     required this.inventoryService,
+    required this.skillService,
     this.enabled = true,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return const SizedBox.shrink();
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class CheatMenuDialog extends StatelessWidget {
   final EnergyService energyService;
   final PlayerService playerService;
   final InventoryService inventoryService;
+  final SkillService skillService;
 
   const CheatMenuDialog({
     super.key,
     required this.energyService,
     required this.playerService,
     required this.inventoryService,
+    required this.skillService,
   });
+
+  // ─── Aktionen ─────────────────────────────────────────────────────────────
 
   Future<void> _deleteAllData(BuildContext context) async {
     final confirm = await _confirm(
       context,
       title: '⚠️ Alle Daten löschen?',
       message:
-          'Energy, Gold, EXP, Level und Inventar werden komplett zurückgesetzt. Das kann nicht rückgängig gemacht werden!',
+          'Energy, Gold, EXP, Level, Skills und Inventar werden komplett zurückgesetzt.',
     );
     if (!confirm) return;
 
@@ -53,18 +58,20 @@ class CheatMenuDialog extends StatelessWidget {
     energyService.fillEnergy();
     playerService.resetGold();
     playerService.resetExp();
+    playerService.cheatResetSkillLevels();
     inventoryService.clearAll();
+    skillService.cheatResetAll();
 
-    if (context.mounted) {
-      _showSnack(context, '🗑️ Alle Daten gelöscht');
-    }
+    if (context.mounted) _showSnack(context, '🗑️ Alle Daten gelöscht');
   }
 
+  // ── Energie ───────────────────────────────────────────────────────────────
   void _resetEnergy(BuildContext context) {
     energyService.fillEnergy();
     _showSnack(context, '⚡ Energie aufgefüllt');
   }
 
+  // ── Gold ──────────────────────────────────────────────────────────────────
   void _resetGold(BuildContext context) {
     playerService.resetGold();
     _showSnack(context, '💰 Gold zurückgesetzt');
@@ -75,9 +82,12 @@ class CheatMenuDialog extends StatelessWidget {
     _showSnack(context, '💰 +999 Gold');
   }
 
+  // ── Player Level ──────────────────────────────────────────────────────────
   void _resetExp(BuildContext context) {
     playerService.resetExp();
+    playerService.cheatResetSkillLevels();
     inventoryService.removeItemsInLockedSlots();
+    skillService.cheatResetAll();
     _showSnack(context, '⭐ EXP & Level zurückgesetzt');
   }
 
@@ -86,10 +96,57 @@ class CheatMenuDialog extends StatelessWidget {
     _showSnack(context, '⭐ +50 EXP');
   }
 
+  void _maxPlayerLevel(BuildContext context) {
+    playerService.cheatMaxPlayerLevel();
+    skillService.checkAndUnlockAll();
+    _showSnack(context, '⭐ Player Level MAX (${PlayerService.maxLevel})');
+  }
+
+  // ── CrazyLevel ────────────────────────────────────────────────────────────
+  void _addCrazyExp(BuildContext context) {
+    playerService.cheatAddCrazyExp();
+    skillService.checkAndUnlockAll();
+    _showSnack(context, '💨 +50 CrazyEXP');
+  }
+
+  void _resetCrazyLevel(BuildContext context) {
+    playerService.cheatResetCrazyLevel();
+    skillService.cheatResetAll();
+    _showSnack(context, '💨 CrazyLevel zurückgesetzt');
+  }
+
+  void _maxCrazyLevel(BuildContext context) {
+    playerService.cheatMaxCrazyLevel();
+    skillService.checkAndUnlockAll();
+    _showSnack(context, '💨 CrazyLevel MAX (${PlayerService.maxCrazyLevel})');
+  }
+
+  // ── RageLevel ─────────────────────────────────────────────────────────────
+  void _addRageKill(BuildContext context) {
+    playerService.registerAttackSkillKill();
+    skillService.checkAndUnlockAll();
+    _showSnack(context, '🔥 +1 Rage Kill');
+  }
+
+  void _resetRageLevel(BuildContext context) {
+    playerService.cheatResetRageLevel();
+    skillService.cheatResetAll();
+    _showSnack(context, '🔥 RageLevel zurückgesetzt');
+  }
+
+  void _maxRageLevel(BuildContext context) {
+    playerService.cheatMaxRageLevel();
+    skillService.checkAndUnlockAll();
+    _showSnack(context, '🔥 RageLevel MAX (${PlayerService.maxRageLevel})');
+  }
+
+  // ── Inventar ──────────────────────────────────────────────────────────────
   void _resetInventory(BuildContext context) {
     inventoryService.clearAll();
     _showSnack(context, '🎒 Inventar geleert');
   }
+
+  // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -100,12 +157,12 @@ class CheatMenuDialog extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.8,
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // ── Titel fix, scrollt nicht mit ──
+              // ── Titel ──────────────────────────────────────────────────────
               Row(
                 children: [
                   const Icon(Icons.bug_report, color: Colors.red, size: 22),
@@ -134,57 +191,131 @@ class CheatMenuDialog extends StatelessWidget {
               const Divider(color: Colors.white12, height: 1),
               const SizedBox(height: 8),
 
-              // ── Scrollbarer Inhalt ──
+              // ── Scrollbarer Inhalt ─────────────────────────────────────────
               Flexible(
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // ── Alles löschen ──────────────────────────────────────
                       _CheatButton(
                         label: '🗑️  ALLE DATEN LÖSCHEN',
-                        subtitle: 'Energy · Gold · EXP · Inventar',
+                        subtitle: 'Energy · Gold · EXP · Skills · Inventar',
                         color: Colors.red.shade800,
                         onTap: () => _deleteAllData(context),
                       ),
-                      const _Divider(label: '⚡ ENERGIE'),
+
+                      // ── Energie ────────────────────────────────────────────
+                      const _SectionDivider(label: '⚡ ENERGIE'),
                       _CheatButton(
                         label: 'Energie auffüllen',
                         color: const Color(0xFF2A2A4A),
                         onTap: () => _resetEnergy(context),
                       ),
-                      const _Divider(label: '💰 GOLD'),
-                      _CheatButton(
-                        label: 'Gold auf 0 setzen',
-                        color: const Color(0xFF2A2A4A),
-                        onTap: () => _resetGold(context),
+
+                      // ── Gold ───────────────────────────────────────────────
+                      const _SectionDivider(label: '💰 GOLD'),
+                      _CheatButtonRow(
+                        children: [
+                          _CheatButton(
+                            label: '+999 Gold',
+                            color: const Color(0xFF2A2A4A),
+                            onTap: () => _addGold(context),
+                          ),
+                          _CheatButton(
+                            label: 'Reset',
+                            color: const Color(0xFF3A1A1A),
+                            borderColor: Colors.red.shade900,
+                            onTap: () => _resetGold(context),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      _CheatButton(
-                        label: '+999 Gold hinzufügen',
-                        color: const Color(0xFF2A2A4A),
-                        onTap: () => _addGold(context),
+
+                      // ── Player Level ───────────────────────────────────────
+                      const _SectionDivider(label: '⭐ PLAYER LEVEL'),
+                      _CheatButtonRow(
+                        children: [
+                          _CheatButton(
+                            label: '+50 EXP',
+                            color: const Color(0xFF2A2A4A),
+                            onTap: () => _addExp(context),
+                          ),
+                          _CheatButton(
+                            label: 'MAX',
+                            subtitle: 'Lv.${PlayerService.maxLevel}',
+                            color: const Color(0xFF1A3A1A),
+                            borderColor: Colors.green.shade700,
+                            onTap: () => _maxPlayerLevel(context),
+                          ),
+                          _CheatButton(
+                            label: 'Reset',
+                            color: const Color(0xFF3A1A1A),
+                            borderColor: Colors.red.shade900,
+                            onTap: () => _resetExp(context),
+                          ),
+                        ],
                       ),
-                      const _Divider(label: '⭐ ERFAHRUNG'),
-                      _CheatButton(
-                        label: 'EXP & Level zurücksetzen',
-                        subtitle: 'Entfernt auch Items in gesperrten Slots',
-                        color: const Color(0xFF2A2A4A),
-                        onTap: () => _resetExp(context),
+
+                      // ── CrazyLevel ─────────────────────────────────────────
+                      const _SectionDivider(label: '💨 CRAZY LEVEL'),
+                      _CheatButtonRow(
+                        children: [
+                          _CheatButton(
+                            label: '+50 CrazyEXP',
+                            color: const Color(0xFF2A2A4A),
+                            onTap: () => _addCrazyExp(context),
+                          ),
+                          _CheatButton(
+                            label: 'MAX',
+                            subtitle: 'Lv.${PlayerService.maxCrazyLevel}',
+                            color: const Color(0xFF1A2A3A),
+                            borderColor: const Color(0xFF4A9EFF),
+                            onTap: () => _maxCrazyLevel(context),
+                          ),
+                          _CheatButton(
+                            label: 'Reset',
+                            color: const Color(0xFF3A1A1A),
+                            borderColor: Colors.red.shade900,
+                            onTap: () => _resetCrazyLevel(context),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      _CheatButton(
-                        label: '+50 EXP hinzufügen',
-                        color: const Color(0xFF2A2A4A),
-                        onTap: () => _addExp(context),
+
+                      // ── RageLevel ──────────────────────────────────────────
+                      const _SectionDivider(label: '🔥 RAGE LEVEL'),
+                      _CheatButtonRow(
+                        children: [
+                          _CheatButton(
+                            label: '+1 Rage Kill',
+                            color: const Color(0xFF2A2A4A),
+                            onTap: () => _addRageKill(context),
+                          ),
+                          _CheatButton(
+                            label: 'MAX',
+                            subtitle: 'Lv.${PlayerService.maxRageLevel}',
+                            color: const Color(0xFF3A1A0A),
+                            borderColor: Colors.orange.shade700,
+                            onTap: () => _maxRageLevel(context),
+                          ),
+                          _CheatButton(
+                            label: 'Reset',
+                            color: const Color(0xFF3A1A1A),
+                            borderColor: Colors.red.shade900,
+                            onTap: () => _resetRageLevel(context),
+                          ),
+                        ],
                       ),
-                      const _Divider(label: '🎒 INVENTAR'),
+
+                      // ── Inventar ───────────────────────────────────────────
+                      const _SectionDivider(label: '🎒 INVENTAR'),
                       _CheatButton(
                         label: 'Inventar leeren',
                         subtitle: 'Alle Items aus allen Slots entfernen',
                         color: const Color(0xFF2A2A4A),
                         onTap: () => _resetInventory(context),
                       ),
+
                       const SizedBox(height: 8),
                     ],
                   ),
@@ -196,6 +327,8 @@ class CheatMenuDialog extends StatelessWidget {
       ),
     );
   }
+
+  // ─── Hilfsmethoden ────────────────────────────────────────────────────────
 
   Future<bool> _confirm(
     BuildContext context, {
@@ -237,10 +370,36 @@ class CheatMenuDialog extends StatelessWidget {
   }
 }
 
+// ─── Widgets ──────────────────────────────────────────────────────────────────
+
+class _CheatButtonRow extends StatelessWidget {
+  final List<_CheatButton> children;
+  const _CheatButtonRow({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: children.indexed
+          .map(
+            (e) => Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  right: e.$1 < children.length - 1 ? 6 : 0,
+                ),
+                child: e.$2,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
 class _CheatButton extends StatelessWidget {
   final String label;
   final String? subtitle;
   final Color color;
+  final Color? borderColor;
   final VoidCallback onTap;
 
   const _CheatButton({
@@ -248,6 +407,7 @@ class _CheatButton extends StatelessWidget {
     required this.color,
     required this.onTap,
     this.subtitle,
+    this.borderColor,
   });
 
   @override
@@ -255,11 +415,11 @@ class _CheatButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(color: borderColor ?? Colors.white12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -269,14 +429,14 @@ class _CheatButton extends StatelessWidget {
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
-                fontSize: 13,
+                fontSize: 12,
               ),
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 2),
               Text(
                 subtitle!,
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                style: const TextStyle(color: Colors.white38, fontSize: 10),
               ),
             ],
           ],
@@ -286,9 +446,9 @@ class _CheatButton extends StatelessWidget {
   }
 }
 
-class _Divider extends StatelessWidget {
+class _SectionDivider extends StatelessWidget {
   final String label;
-  const _Divider({required this.label});
+  const _SectionDivider({required this.label});
 
   @override
   Widget build(BuildContext context) {

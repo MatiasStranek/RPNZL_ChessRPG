@@ -19,28 +19,31 @@ class DashSkill extends MoveSkillBase {
   List<List<int>> getLegalMoves(int fromX, int fromY, BoardState state) {
     final moves = <List<int>>[];
 
+    // Nur horizontal und vertikal, genau 2 Felder (überspringt das erste)
     const directions = [
       [1, 0],
       [-1, 0],
       [0, 1],
       [0, -1],
-      [1, 1],
-      [1, -1],
-      [-1, 1],
-      [-1, -1],
     ];
 
     for (final dir in directions) {
-      for (int dist = 1; dist <= 2; dist++) {
-        final nx = fromX + dir[0] * dist;
-        final ny = fromY + dir[1] * dist;
+      // Zwischenfeld (dist=1) wird übersprungen – nur Zielfeld (dist=2)
+      final midX = fromX + dir[0];
+      final midY = fromY + dir[1];
+      final nx = fromX + dir[0] * 2;
+      final ny = fromY + dir[1] * 2;
 
-        if (nx < 0 || nx >= state.board.width) continue;
-        if (ny < 0 || ny >= state.board.height) continue;
-        if (state.board.cells[ny][nx] == CellType.hole) continue;
+      // Zielfeld muss auf dem Board und kein Loch sein
+      if (nx < 0 || nx >= state.board.width) continue;
+      if (ny < 0 || ny >= state.board.height) continue;
+      if (state.board.cells[ny][nx] == CellType.hole) continue;
 
-        moves.add([nx, ny]);
-      }
+      // Zwischenfeld muss auf dem Board sein (kann aber betreten werden)
+      if (midX < 0 || midX >= state.board.width) continue;
+      if (midY < 0 || midY >= state.board.height) continue;
+
+      moves.add([nx, ny]);
     }
 
     return moves;

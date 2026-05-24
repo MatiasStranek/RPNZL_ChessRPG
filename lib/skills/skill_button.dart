@@ -4,24 +4,28 @@ import 'skill_model.dart';
 import 'skill_service.dart';
 import 'active_skill_service.dart';
 import 'move_skills/move_skill_base.dart';
+import 'move_skills/dash_skill.dart';
+import '../energy/energy_service.dart';
 
 const double _hotbarHeight = 48 + 6 * 2 + 24;
 const double _mainBtnSize = 48.0;
 const double _popBtnH = 36.0;
 const double _popBtnW = 112.0;
 
+// Registry: SkillId → energyCost
+final Map<String, int> _skillEnergyCost = {'move_dash': DashSkill().energyCost};
+
 class SkillButton extends StatefulWidget {
   final SkillService skillService;
   final ActiveSkillService activeSkillService;
-
-  /// Callback: wird aufgerufen wenn ein Skill aktiviert wird,
-  /// damit ChessGame die Spielfigur automatisch auswählt.
+  final EnergyService energyService;
   final VoidCallback? onSkillActivated;
 
   const SkillButton({
     super.key,
     required this.skillService,
     required this.activeSkillService,
+    required this.energyService,
     this.onSkillActivated,
   });
 
@@ -71,23 +75,23 @@ class _SkillButtonState extends State<SkillButton>
     _animCtrl.reverse();
   }
 
-  /// MoveSkill aktivieren: Popup schließen, Skill aktivieren,
-  /// Spielfigur automatisch auswählen.
   void _activateMoveSkill(String skillId) {
     _closePopup();
     widget.activeSkillService.activateSkill(skillId);
     widget.onSkillActivated?.call();
   }
 
-  /// Attack-Skills öffnen noch das Sheet (später implementiert).
-  void _openSkillSheet(SkillType type) {
+  void _openSkillDialog(SkillType type) {
     _closePopup();
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) =>
-          _SkillSheet(skillService: widget.skillService, type: type),
+      barrierColor: Colors.black54,
+      builder: (_) => _SkillDialog(
+        skillService: widget.skillService,
+        energyService: widget.energyService,
+        type: type,
+        onActivate: type == SkillType.move ? _activateMoveSkill : null,
+      ),
     );
   }
 
@@ -101,7 +105,6 @@ class _SkillButtonState extends State<SkillButton>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // ── PopUp Buttons ─────────────────────────────────────────
             FadeTransition(
               opacity: _fadeAnim,
               child: SlideTransition(
@@ -115,14 +118,14 @@ class _SkillButtonState extends State<SkillButton>
                             label: 'S-Move',
                             icon: '💨',
                             color: const Color(0xFF4A9EFF),
-                            onTap: () => _openSkillSheet(SkillType.move),
+                            onTap: () => _openSkillDialog(SkillType.move),
                           ),
                           const SizedBox(height: 6),
                           _PopButton(
                             label: 'S-Attack',
                             icon: '⚔️',
                             color: const Color(0xFFFF6B6B),
-                            onTap: () => _openSkillSheet(SkillType.attack),
+                            onTap: () => _openSkillDialog(SkillType.attack),
                           ),
                           const SizedBox(height: 8),
                         ],
@@ -131,7 +134,6 @@ class _SkillButtonState extends State<SkillButton>
               ),
             ),
 
-            // ── Haupt-Button mit Leucht-Effekt ────────────────────────
             ValueListenableBuilder<MoveSkillBase?>(
               valueListenable: widget.activeSkillService.activeSkillNotifier,
               builder: (context, activeSkill, _) {
@@ -253,17 +255,30 @@ class _PopButton extends StatelessWidget {
   }
 }
 
-// ─── Skill-Sheet ──────────────────────────────────────────────────────────────
+// ─── Skill-Dialog (zentriertes PopUp) ─────────────────────────────────────────
 
-const double _gridSlotSize = 64.0;
-const double _gridSlotMargin = 5.0;
-const int _gridCols = 4;
+const double _gridSlotSize = 80.0; // Skill slot size
+const double _gridSlotMargin = 4.0;
+const int _gridCols = 8; // 8 Skills pro Reihe
+// Berechnete Dialog-Breite: 8 Slots + 7 Abstände + 2× Padding
+const double _dialogGridPadding = 12.0;
+const double _dialogWidth =
+    _gridCols * _gridSlotSize +
+    (_gridCols - 1) * _gridSlotMargin +
+    _dialogGridPadding * 2;
 
-class _SkillSheet extends StatelessWidget {
+class _SkillDialog extends StatelessWidget {
   final SkillService skillService;
+  final EnergyService energyService;
   final SkillType type;
+  final void Function(String skillId)? onActivate;
 
-  const _SkillSheet({required this.skillService, required this.type});
+  const _SkillDialog({
+    required this.skillService,
+    required this.energyService,
+    required this.type,
+    this.onActivate,
+  });
 
   String get _title =>
       type == SkillType.move ? '💨 Move Skills' : '⚔️ Attack Skills';
@@ -273,121 +288,215 @@ class _SkillSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.52,
-      minChildSize: 0.35,
-      maxChildSize: 0.85,
-      builder: (_, scrollCtrl) {
-        return Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1E1E),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            border: Border.all(color: const Color(0xFF444444), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: _accentColor.withOpacity(0.1),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 4),
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF555555),
-                    borderRadius: BorderRadius.circular(2),
+    final screenSize = MediaQuery.of(context).size;
+    // Dialog-Breite: Bildschirm minus Rand auf beiden Seiten
+    final maxDialogHeight = screenSize.height * 0.65;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: Container(
+        width: _dialogWidth,
+        constraints: BoxConstraints(maxHeight: maxDialogHeight),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFF444444), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: _accentColor.withOpacity(0.12),
+              blurRadius: 30,
+              spreadRadius: 4,
+            ),
+            const BoxShadow(
+              color: Colors.black87,
+              blurRadius: 20,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Header ──────────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+              child: Row(
+                children: [
+                  Text(
+                    _title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
                   ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 10,
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      _title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _accentColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: _accentColor.withOpacity(0.4)),
+                    ),
+                    child: Text(
+                      type == SkillType.move ? 'Bewegung' : 'Angriff',
+                      style: TextStyle(
+                        color: _accentColor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
+                  ),
+                  const Spacer(),
+                  // ── Schließen-Button ─────────────────────────────────────
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Container(
+                      width: 32,
+                      height: 32,
                       decoration: BoxDecoration(
-                        color: _accentColor.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _accentColor.withOpacity(0.4),
-                        ),
+                        color: const Color(0xFF2E2E2E),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF444444)),
                       ),
-                      child: Text(
-                        type == SkillType.move ? 'Bewegung' : 'Angriff',
-                        style: TextStyle(
-                          color: _accentColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      child: const Icon(
+                        Icons.close,
+                        color: Color(0xFF888888),
+                        size: 16,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const Divider(color: Color(0xFF333333), height: 1),
-              Expanded(
-                child: ValueListenableBuilder<List<SkillModel>>(
-                  valueListenable: skillService.skillsNotifier,
-                  builder: (_, skills, __) {
-                    final filtered = skills
-                        .where((s) => s.type == type)
-                        .toList();
-                    if (filtered.isEmpty) {
-                      return Center(
-                        child: Text(
-                          'Keine Skills verfügbar',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 14,
+            ),
+
+            Container(height: 1, color: const Color(0xFF2E2E2E)),
+
+            // ── Grid ────────────────────────────────────────────────────────
+            Flexible(
+              child: ValueListenableBuilder<int>(
+                valueListenable: energyService.energyNotifier,
+                builder: (_, currentEnergy, __) {
+                  return ValueListenableBuilder<List<SkillModel>>(
+                    valueListenable: skillService.skillsNotifier,
+                    builder: (_, skills, __) {
+                      final filtered = skills
+                          .where((s) => s.type == type)
+                          .toList();
+
+                      if (filtered.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Center(
+                            child: Text(
+                              'Keine Skills verfügbar',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.4),
+                                fontSize: 14,
+                              ),
+                            ),
                           ),
-                        ),
+                        );
+                      }
+
+                      return GridView.builder(
+                        padding: const EdgeInsets.all(_dialogGridPadding),
+                        shrinkWrap: true,
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: _gridSlotSize,
+                              crossAxisSpacing: _gridSlotMargin,
+                              mainAxisSpacing: _gridSlotMargin,
+                              childAspectRatio: 1.0,
+                            ),
+                        itemCount: filtered.length,
+                        itemBuilder: (ctx, i) {
+                          final skill = filtered[i];
+                          final cost = _skillEnergyCost[skill.id];
+                          final hasEnough =
+                              cost == null || currentEnergy >= cost;
+                          return _SkillSlot(
+                            skill: skill,
+                            energyCost: cost,
+                            currentEnergy: currentEnergy,
+                            hasEnoughEnergy: hasEnough,
+                            onActivate: (onActivate != null && hasEnough)
+                                ? () {
+                                    Navigator.of(ctx).pop();
+                                    onActivate!(skill.id);
+                                  }
+                                : null,
+                          );
+                        },
                       );
-                    }
-                    return GridView.builder(
-                      controller: scrollCtrl,
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: _gridCols,
-                            crossAxisSpacing: _gridSlotMargin * 2,
-                            mainAxisSpacing: _gridSlotMargin * 2,
-                            childAspectRatio: 1.0,
-                          ),
-                      itemCount: filtered.length,
-                      itemBuilder: (ctx, i) => _SkillSlot(
-                        skill: filtered[i],
-                        skillService: skillService,
-                        onUnlock: () =>
-                            skillService.unlockSkill(filtered[i].id),
-                      ),
-                    );
-                  },
-                ),
+                    },
+                  );
+                },
               ),
-            ],
+            ),
+
+            // ── Legende unten ────────────────────────────────────────────────
+            Container(height: 1, color: const Color(0xFF2E2E2E)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _LegendItem(
+                    color: const Color(0xFF888888),
+                    label: 'Gesperrt',
+                  ),
+                  const SizedBox(width: 16),
+                  _LegendItem(
+                    color: const Color(0xFF44CC88),
+                    label: 'Verfügbar',
+                  ),
+                  const SizedBox(width: 16),
+                  _LegendItem(
+                    color: Colors.red.shade300,
+                    label: 'Zu wenig Energie',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LegendItem extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const _LegendItem({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
@@ -396,13 +505,17 @@ class _SkillSheet extends StatelessWidget {
 
 class _SkillSlot extends StatefulWidget {
   final SkillModel skill;
-  final SkillService skillService;
-  final VoidCallback onUnlock;
+  final int? energyCost;
+  final int currentEnergy;
+  final bool hasEnoughEnergy;
+  final VoidCallback? onActivate;
 
   const _SkillSlot({
     required this.skill,
-    required this.skillService,
-    required this.onUnlock,
+    required this.hasEnoughEnergy,
+    required this.currentEnergy,
+    this.energyCost,
+    this.onActivate,
   });
 
   @override
@@ -413,11 +526,32 @@ class _SkillSlotState extends State<_SkillSlot> {
   OverlayEntry? _overlay;
   final LayerLink _layerLink = LayerLink();
 
-  bool get _canUnlock => widget.skill.requirement.isMet(
-    playerLevel: widget.skillService.playerService.level,
-    crazyLevel: widget.skillService.playerService.crazyLevel,
-    rageLevel: widget.skillService.playerService.rageLevel,
-  );
+  void _onTap() {
+    if (widget.skill.unlocked) {
+      if (!widget.hasEnoughEnergy) {
+        _showEnergyPopup();
+        return;
+      }
+      if (widget.onActivate != null) {
+        widget.onActivate!();
+        return;
+      }
+    }
+    _showDetail();
+  }
+
+  void _showEnergyPopup() {
+    _removeDetail();
+    _overlay = OverlayEntry(
+      builder: (_) => _EnergyPopup(
+        layerLink: _layerLink,
+        energyCost: widget.energyCost ?? 0,
+        currentEnergy: widget.currentEnergy,
+        onDismiss: _removeDetail,
+      ),
+    );
+    Overlay.of(context).insert(_overlay!);
+  }
 
   void _showDetail() {
     _removeDetail();
@@ -425,11 +559,8 @@ class _SkillSlotState extends State<_SkillSlot> {
       builder: (_) => _SkillDetailOverlay(
         layerLink: _layerLink,
         skill: widget.skill,
-        canUnlock: _canUnlock,
-        onUnlock: () {
-          _removeDetail();
-          widget.onUnlock();
-        },
+        energyCost: widget.energyCost,
+        hasEnoughEnergy: widget.hasEnoughEnergy,
         onDismiss: _removeDetail,
       ),
     );
@@ -452,16 +583,15 @@ class _SkillSlotState extends State<_SkillSlot> {
     final skill = widget.skill;
     final tierColor = skill.tierColor;
     final locked = !skill.unlocked;
-    final canUnlock = _canUnlock;
-    final opacity = (locked && !canUnlock) ? 0.4 : 1.0;
+    final dimmed = locked || (skill.unlocked && !widget.hasEnoughEnergy);
 
     return CompositedTransformTarget(
       link: _layerLink,
       child: GestureDetector(
-        onTap: _showDetail,
+        onTap: _onTap,
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 200),
-          opacity: opacity,
+          opacity: dimmed ? 0.4 : 1.0,
           child: Container(
             decoration: BoxDecoration(
               color: skill.unlocked
@@ -470,17 +600,17 @@ class _SkillSlotState extends State<_SkillSlot> {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: skill.unlocked
-                    ? tierColor.withOpacity(0.7)
-                    : canUnlock
-                    ? tierColor.withOpacity(0.35)
+                    ? (widget.hasEnoughEnergy
+                          ? tierColor.withOpacity(0.7)
+                          : Colors.red.withOpacity(0.5))
                     : const Color(0xFF444444),
-                width: 2,
+                width: 1.5,
               ),
-              boxShadow: skill.unlocked
+              boxShadow: (skill.unlocked && widget.hasEnoughEnergy)
                   ? [
                       BoxShadow(
                         color: tierColor.withOpacity(0.25),
-                        blurRadius: 8,
+                        blurRadius: 6,
                         spreadRadius: 1,
                       ),
                     ]
@@ -488,57 +618,86 @@ class _SkillSlotState extends State<_SkillSlot> {
             ),
             child: Stack(
               children: [
+                // ── Skill Icon ───────────────────────────────────────────────
                 Center(
                   child: Text(
-                    locked && !canUnlock ? '🔒' : skill.icon,
-                    style: const TextStyle(fontSize: 26),
+                    locked ? '🔒' : skill.icon,
+                    style: const TextStyle(fontSize: 14),
                   ),
                 ),
+
+                // ── Tier-Punkt oben links ────────────────────────────────────
                 Positioned(
-                  top: 4,
-                  left: 4,
+                  top: 2,
+                  left: 2,
                   child: Container(
-                    width: 6,
-                    height: 6,
+                    width: 4,
+                    height: 4,
                     decoration: BoxDecoration(
                       color: tierColor,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
                           color: tierColor.withOpacity(0.6),
-                          blurRadius: 4,
+                          blurRadius: 3,
                         ),
                       ],
                     ),
                   ),
                 ),
+
+                // ── Häkchen oben rechts ──────────────────────────────────────
                 if (skill.unlocked)
                   Positioned(
-                    bottom: 3,
-                    right: 4,
+                    top: 1,
+                    right: 2,
                     child: Text(
                       '✓',
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 7,
                         color: Colors.greenAccent.withOpacity(0.9),
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                Positioned(
-                  bottom: 3,
-                  left: 4,
-                  child: Text(
-                    skill.requirement.shortLabel,
-                    style: TextStyle(
-                      fontSize: 7,
-                      color: canUnlock
-                          ? const Color(0xFFFFD700)
-                          : const Color(0xFF666666),
-                      fontWeight: FontWeight.bold,
+
+                // ── Energiekosten unten rechts ───────────────────────────────
+                if (widget.energyCost != null)
+                  Positioned(
+                    bottom: 2,
+                    right: 3,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('⚡', style: TextStyle(fontSize: 7)),
+                        Text(
+                          '${widget.energyCost}',
+                          style: TextStyle(
+                            fontSize: 7,
+                            fontWeight: FontWeight.bold,
+                            color: widget.hasEnoughEnergy
+                                ? const Color(0xFFFFD700)
+                                : Colors.red.shade300,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
+
+                // ── Anforderung unten links (gesperrt) ───────────────────────
+                if (locked)
+                  Positioned(
+                    bottom: 2,
+                    left: 3,
+                    child: Text(
+                      skill.requirement.shortLabel,
+                      style: const TextStyle(
+                        fontSize: 6,
+                        color: Color(0xFF666666),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -553,15 +712,15 @@ class _SkillSlotState extends State<_SkillSlot> {
 class _SkillDetailOverlay extends StatelessWidget {
   final LayerLink layerLink;
   final SkillModel skill;
-  final bool canUnlock;
-  final VoidCallback onUnlock;
+  final int? energyCost;
+  final bool hasEnoughEnergy;
   final VoidCallback onDismiss;
 
   const _SkillDetailOverlay({
     required this.layerLink,
     required this.skill,
-    required this.canUnlock,
-    required this.onUnlock,
+    required this.hasEnoughEnergy,
+    this.energyCost,
     required this.onDismiss,
   });
 
@@ -611,6 +770,7 @@ class _SkillDetailOverlay extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ── Header ────────────────────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
                     child: Row(
@@ -652,6 +812,8 @@ class _SkillDetailOverlay extends StatelessWidget {
                     ),
                   ),
                   const Divider(color: Color(0xFF3A3A3A), height: 1),
+
+                  // ── Beschreibung ──────────────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
                     child: Text(
@@ -663,110 +825,205 @@ class _SkillDetailOverlay extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.star_rounded,
-                          size: 12,
-                          color: canUnlock
-                              ? const Color(0xFFFFD700)
-                              : const Color(0xFF666666),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            skill.requirement.description,
-                            style: TextStyle(
-                              color: canUnlock
-                                  ? const Color(0xFFFFD700)
-                                  : const Color(0xFF666666),
-                              fontSize: 10,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(color: Color(0xFF3A3A3A), height: 1),
-                  if (skill.unlocked)
+
+                  // ── Energiekosten ─────────────────────────────────────────
+                  if (energyCost != null)
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(
-                            Icons.check_circle,
-                            color: Colors.greenAccent,
-                            size: 14,
-                          ),
-                          SizedBox(width: 6),
+                        children: [
+                          const Text('⚡', style: TextStyle(fontSize: 12)),
+                          const SizedBox(width: 4),
                           Text(
-                            'Freigeschaltet',
+                            '$energyCost Energie',
                             style: TextStyle(
-                              color: Colors.greenAccent,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                              color: hasEnoughEnergy
+                                  ? const Color(0xFFFFD700)
+                                  : Colors.red.shade300,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ],
-                      ),
-                    )
-                  else if (canUnlock)
-                    InkWell(
-                      onTap: onUnlock,
-                      borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(10),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text('🔓', style: TextStyle(fontSize: 13)),
+                          if (!hasEnoughEnergy) ...[
                             const SizedBox(width: 6),
                             Text(
-                              'Freischalten',
+                              '(zu wenig)',
                               style: TextStyle(
-                                color: tierColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
+                                color: Colors.red.shade300,
+                                fontSize: 10,
                               ),
                             ),
                           ],
-                        ),
+                        ],
                       ),
-                    )
-                  else
+                    ),
+
+                  // ── Anforderung (gesperrt) ────────────────────────────────
+                  if (!skill.unlocked)
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Text('🔒', style: TextStyle(fontSize: 13)),
-                          SizedBox(width: 6),
-                          Text(
-                            'Level zu niedrig',
-                            style: TextStyle(
-                              color: Color(0xFF666666),
-                              fontSize: 12,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.lock,
+                            size: 12,
+                            color: Color(0xFF666666),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              skill.requirement.description,
+                              style: const TextStyle(
+                                color: Color(0xFF666666),
+                                fontSize: 10,
+                                height: 1.4,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
+
+                  // ── Status-Zeile ──────────────────────────────────────────
+                  const Divider(color: Color(0xFF3A3A3A), height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: skill.unlocked
+                          ? !hasEnoughEnergy
+                                ? [
+                                    Icon(
+                                      Icons.bolt,
+                                      color: Colors.red.shade300,
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Nicht genug Energie',
+                                      style: TextStyle(
+                                        color: Colors.red.shade300,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ]
+                                : [
+                                    const Icon(
+                                      Icons.check_circle,
+                                      color: Colors.greenAccent,
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    const Text(
+                                      'Freigeschaltet',
+                                      style: TextStyle(
+                                        color: Colors.greenAccent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ]
+                          : [
+                              const Text('🔒', style: TextStyle(fontSize: 13)),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'Noch nicht freigeschaltet',
+                                style: TextStyle(
+                                  color: Color(0xFF666666),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Energie-Popup ────────────────────────────────────────────────────────────
+
+class _EnergyPopup extends StatelessWidget {
+  final LayerLink layerLink;
+  final int energyCost;
+  final int currentEnergy;
+  final VoidCallback onDismiss;
+
+  const _EnergyPopup({
+    required this.layerLink,
+    required this.energyCost,
+    required this.currentEnergy,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: onDismiss,
+            behavior: HitTestBehavior.translucent,
+            child: const SizedBox.expand(),
+          ),
+        ),
+        CompositedTransformFollower(
+          link: layerLink,
+          showWhenUnlinked: false,
+          offset: Offset((_gridSlotSize - 160) / 2, -(_gridSlotSize + 72)),
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 160,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A2A2A),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: Colors.red.withOpacity(0.5),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  const BoxShadow(
+                    color: Colors.black54,
+                    blurRadius: 12,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('⚡', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$currentEnergy / $energyCost',
+                        style: TextStyle(
+                          color: Colors.red.shade300,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Nicht genug Energie',
+                    style: TextStyle(color: Colors.red.shade300, fontSize: 12),
+                  ),
                 ],
               ),
             ),

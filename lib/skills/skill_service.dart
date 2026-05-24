@@ -5,15 +5,6 @@ import '../player/player_service.dart';
 import 'skill_model.dart';
 
 // ─── Masterliste ──────────────────────────────────────────────────────────────
-//
-//  Move Skills:
-//    move_dash    → PlayerLevel 10  (erster Move Skill)
-//    alle weiteren → CrazyLevel X   (durch MoveSkill-Kills verdient)
-//
-//  Attack Skills:
-//    atk_slash    → PlayerLevel 50  (erster Attack Skill)
-//    alle weiteren → RageLevel X    (durch AttackSkill-Kills verdient)
-
 const List<SkillModel> _allSkills = [
   // ── Move Skills ────────────────────────────────────────────────────────────
   SkillModel(
@@ -24,7 +15,7 @@ const List<SkillModel> _allSkills = [
     icon: '💨',
     type: SkillType.move,
     tier: SkillTier.common,
-    requirement: PlayerLevelRequirement(10), // erster Move Skill
+    requirement: PlayerLevelRequirement(10),
   ),
   SkillModel(
     id: 'move_teleport',
@@ -71,7 +62,7 @@ const List<SkillModel> _allSkills = [
     icon: '⚔️',
     type: SkillType.attack,
     tier: SkillTier.common,
-    requirement: PlayerLevelRequirement(50), // erster Attack Skill
+    requirement: PlayerLevelRequirement(50),
   ),
   SkillModel(
     id: 'atk_fireball',
@@ -149,36 +140,39 @@ class SkillService {
 
   bool isUnlocked(String id) => _unlockedIds.contains(id);
 
-  // ─── Skill freischalten ───────────────────────────────────────────────────
+  // ─── Automatisches Freischalten ───────────────────────────────────────────
 
-  /// Prüft die jeweilige Bedingung (PlayerLevel / CrazyLevel / RageLevel)
-  /// und schaltet den Skill frei. Gibt true zurück wenn erfolgreich.
-  bool unlockSkill(String id) {
-    final skill = _allSkills.firstWhere(
-      (s) => s.id == id,
-      orElse: () => throw ArgumentError('Unknown skill id: $id'),
-    );
+  /// Prüft alle Skills und schaltet automatisch jeden frei dessen
+  /// Bedingung jetzt erfüllt ist. Aufrufen nach jeder Level-Änderung.
+  /// Gibt die neu freigeschaltenen Skills zurück (z.B. für Notifications).
+  List<SkillModel> checkAndUnlockAll() {
+    final unlocked = _unlockedIds;
+    final newlyUnlocked = <SkillModel>[];
 
-    final met = skill.requirement.isMet(
-      playerLevel: playerService.level,
-      crazyLevel: playerService.crazyLevel,
-      rageLevel: playerService.rageLevel,
-    );
-    if (!met) return false;
-    if (isUnlocked(id)) return true;
+    for (final skill in _allSkills) {
+      if (unlocked.contains(skill.id)) continue; // bereits freigeschaltet
 
-    final ids = _unlockedIds..add(id);
-    _box.put(_unlockedKey, ids.toList());
-    _notify();
-    return true;
+      final met = skill.requirement.isMet(
+        playerLevel: playerService.level,
+        crazyLevel: playerService.crazyLevel,
+        rageLevel: playerService.rageLevel,
+      );
+
+      if (met) {
+        unlocked.add(skill.id);
+        newlyUnlocked.add(skill);
+      }
+    }
+
+    if (newlyUnlocked.isNotEmpty) {
+      _box.put(_unlockedKey, unlocked.toList());
+      _notify();
+    }
+
+    return newlyUnlocked;
   }
 
-  /// Sperrt einen Skill wieder (z.B. Reset via Cheat).
-  void lockSkill(String id) {
-    final ids = _unlockedIds..remove(id);
-    _box.put(_unlockedKey, ids.toList());
-    _notify();
-  }
+  // ─── Cheat-Methoden ───────────────────────────────────────────────────────
 
   /// Alle Skills freischalten (Cheat).
   void cheatUnlockAll() {
@@ -192,8 +186,7 @@ class SkillService {
     _notify();
   }
 
-  /// Wird aufgerufen wenn skillsNotifier von außen neu gebaut werden soll
-  /// (z.B. nach CrazyLevel/RageLevel-Änderung im PlayerService).
+  /// Wird aufgerufen wenn skillsNotifier von außen neu gebaut werden soll.
   void refresh() => _notify();
 
   // ─── Intern ───────────────────────────────────────────────────────────────

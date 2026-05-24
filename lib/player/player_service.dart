@@ -9,13 +9,11 @@ const int _baseMaxEnergy = 4;
 const int _slotsPerLevel = 1;
 const int _energyPerLevel = 1;
 
-const int _expPerLevel = 10;
-const int _maxLevel = 10;
+const int _maxLevel = 100;
+const int _maxCrazyLevel = 100;
+const int _maxRageLevel = 100;
 
-// ─── CrazyLevel / RageLevel Konfiguration ────────────────────────────────────
-// Wie viele MoveSkill-Kills für einen CrazyLevel-Aufstieg benötigt werden.
-// Analog für RageLevel.
-const int _killsPerCrazyLevel = 5;
+const int _crazyExpPerLevel = 50;
 const int _killsPerRageLevel = 5;
 
 class PlayerService {
@@ -24,10 +22,9 @@ class PlayerService {
   static const String _expKey = 'exp';
   static const String _levelKey = 'level';
 
-  // ── Neue Keys für CrazyLevel / RageLevel ──────────────────────────────────
   static const String _crazyLevelKey = 'crazy_level';
-  static const String _crazyKillsKey =
-      'crazy_kills'; // Kills in aktuellem Level
+  static const String _crazyExpKey = 'crazy_exp';
+
   static const String _rageLevelKey = 'rage_level';
   static const String _rageKillsKey = 'rage_kills';
 
@@ -39,8 +36,19 @@ class PlayerService {
     playerNotifier = ValueNotifier(_currentState());
   }
 
-  // ─── Getter: Standard ─────────────────────────────────────────────────────
+  // ─── Static Max-Getter (für Cheat-Menu) ──────────────────────────────────
+  static int get maxLevel => _maxLevel;
+  static int get maxCrazyLevel => _maxCrazyLevel;
+  static int get maxRageLevel => _maxRageLevel;
 
+  // ─── EXP-Formel ──────────────────────────────────────────────────────────
+  // Sanfte Kurve: Level 1=12, Level 10=120, Level 50=750, Level 100=2100
+  int _expForLevel(int lvl) {
+    if (lvl <= 0) return 0;
+    return (lvl * 10 + (lvl * lvl) ~/ 5);
+  }
+
+  // ─── Getter: Standard ─────────────────────────────────────────────────────
   int get gold => _box.get(_goldKey, defaultValue: 0) as int;
   int get exp => _box.get(_expKey, defaultValue: 0) as int;
   int get level => _box.get(_levelKey, defaultValue: 0) as int;
@@ -48,42 +56,49 @@ class PlayerService {
   int get unlockedSlots => _baseUnlockedSlots + (level * _slotsPerLevel);
   int get maxEnergy => _baseMaxEnergy + (level * _energyPerLevel);
 
+  int get expCurrentLevelFloor => _expForLevel(level);
+  int get expNextLevelCeil => _expForLevel(level + 1);
+  int get expInCurrentLevel => exp - expCurrentLevelFloor;
+
   int? get expToNextLevel {
     if (level >= _maxLevel) return null;
-    final nextThreshold = (level + 1) * _expPerLevel;
-    return nextThreshold - exp;
+    return expNextLevelCeil - exp;
   }
-
-  int get expCurrentLevelFloor => level * _expPerLevel;
-  int get expNextLevelCeil => (level + 1) * _expPerLevel;
 
   double get levelProgress {
     if (level >= _maxLevel) return 1.0;
     final floor = expCurrentLevelFloor;
     final ceil = expNextLevelCeil;
+    if (ceil == floor) return 1.0;
     return ((exp - floor) / (ceil - floor)).clamp(0.0, 1.0);
   }
 
-  int get expInCurrentLevel => exp - expCurrentLevelFloor;
-
-  // ─── Getter: CrazyLevel / RageLevel ──────────────────────────────────────
-
+  // ─── Getter: CrazyLevel ───────────────────────────────────────────────────
   int get crazyLevel => _box.get(_crazyLevelKey, defaultValue: 0) as int;
-  int get crazyKills => _box.get(_crazyKillsKey, defaultValue: 0) as int;
+  int get crazyExp => _box.get(_crazyExpKey, defaultValue: 0) as int;
 
+  int get crazyExpFloor => crazyLevel * _crazyExpPerLevel;
+  int get crazyExpCeil => (crazyLevel + 1) * _crazyExpPerLevel;
+  int get crazyExpInCurrentLevel => crazyExp - crazyExpFloor;
+
+  double get crazyLevelProgress {
+    if (crazyLevel >= _maxCrazyLevel) return 1.0;
+    final floor = crazyExpFloor;
+    final ceil = crazyExpCeil;
+    if (ceil == floor) return 1.0;
+    return ((crazyExp - floor) / (ceil - floor)).clamp(0.0, 1.0);
+  }
+
+  // ─── Getter: RageLevel ────────────────────────────────────────────────────
   int get rageLevel => _box.get(_rageLevelKey, defaultValue: 0) as int;
   int get rageKills => _box.get(_rageKillsKey, defaultValue: 0) as int;
 
-  /// Fortschritt innerhalb des aktuellen CrazyLevels (0.0 – 1.0)
-  double get crazyLevelProgress =>
-      (crazyKills / _killsPerCrazyLevel).clamp(0.0, 1.0);
-
-  /// Fortschritt innerhalb des aktuellen RageLevels (0.0 – 1.0)
-  double get rageLevelProgress =>
-      (rageKills / _killsPerRageLevel).clamp(0.0, 1.0);
+  double get rageLevelProgress {
+    if (rageLevel >= _maxRageLevel) return 1.0;
+    return (rageKills / _killsPerRageLevel).clamp(0.0, 1.0);
+  }
 
   // ─── Aktionen: Standard ───────────────────────────────────────────────────
-
   PlayerState rewardForKill(int enemyLevel) {
     final reward = rewardFor(enemyLevel);
     _addGold(reward.gold);
@@ -100,40 +115,36 @@ class PlayerService {
     return true;
   }
 
-  // ─── Aktionen: CrazyLevel / RageLevel ────────────────────────────────────
-
-  /// Aufrufen wenn ein Gegner mit einem MoveSkill besiegt wurde.
-  /// Gibt true zurück wenn ein CrazyLevel-Aufstieg stattgefunden hat.
-  bool registerMoveSkillKill() {
-    final newKills = crazyKills + 1;
-    if (newKills >= _killsPerCrazyLevel) {
-      _box.put(_crazyLevelKey, crazyLevel + 1);
-      _box.put(_crazyKillsKey, 0);
+  // ─── Aktionen: CrazyExp ───────────────────────────────────────────────────
+  bool addCrazyExp(int amount) {
+    if (crazyLevel >= _maxCrazyLevel) return false;
+    final newExp = crazyExp + amount;
+    _box.put(_crazyExpKey, newExp);
+    if (newExp >= crazyExpCeil) {
+      _box.put(_crazyLevelKey, (crazyLevel + 1).clamp(0, _maxCrazyLevel));
       _notify();
-      return true; // Level-Up!
+      return true;
     }
-    _box.put(_crazyKillsKey, newKills);
     _notify();
     return false;
   }
 
-  /// Aufrufen wenn ein Gegner mit einem AttackSkill besiegt wurde.
-  /// Gibt true zurück wenn ein RageLevel-Aufstieg stattgefunden hat.
+  // ─── Aktionen: RageLevel ──────────────────────────────────────────────────
   bool registerAttackSkillKill() {
+    if (rageLevel >= _maxRageLevel) return false;
     final newKills = rageKills + 1;
     if (newKills >= _killsPerRageLevel) {
-      _box.put(_rageLevelKey, rageLevel + 1);
+      _box.put(_rageLevelKey, (rageLevel + 1).clamp(0, _maxRageLevel));
       _box.put(_rageKillsKey, 0);
       _notify();
-      return true; // Level-Up!
+      return true;
     }
     _box.put(_rageKillsKey, newKills);
     _notify();
     return false;
   }
 
-  // ─── Cheat-Methoden ───────────────────────────────────────────────────────
-
+  // ─── Cheat: Standard ─────────────────────────────────────────────────────
   void resetGold() {
     _box.put(_goldKey, 0);
     _notify();
@@ -154,31 +165,52 @@ class PlayerService {
     _addExp(50);
   }
 
-  /// Gibt +1 CrazyLevel (Cheat).
-  void cheatAddCrazyLevel() {
-    _box.put(_crazyLevelKey, crazyLevel + 1);
-    _box.put(_crazyKillsKey, 0);
+  void cheatMaxPlayerLevel() {
+    _box.put(_levelKey, _maxLevel);
+    _box.put(_expKey, _expForLevel(_maxLevel));
     _notify();
   }
 
-  /// Gibt +1 RageLevel (Cheat).
-  void cheatAddRageLevel() {
-    _box.put(_rageLevelKey, rageLevel + 1);
-    _box.put(_rageKillsKey, 0);
-    _notify();
+  // ─── Cheat: CrazyLevel ───────────────────────────────────────────────────
+  void cheatAddCrazyExp() {
+    addCrazyExp(50);
   }
 
-  /// Setzt CrazyLevel und RageLevel auf 0 zurück (Cheat).
-  void cheatResetSkillLevels() {
+  void cheatResetCrazyLevel() {
     _box.put(_crazyLevelKey, 0);
-    _box.put(_crazyKillsKey, 0);
+    _box.put(_crazyExpKey, 0);
+    _notify();
+  }
+
+  void cheatMaxCrazyLevel() {
+    _box.put(_crazyLevelKey, _maxCrazyLevel);
+    _box.put(_crazyExpKey, _maxCrazyLevel * _crazyExpPerLevel);
+    _notify();
+  }
+
+  // ─── Cheat: RageLevel ────────────────────────────────────────────────────
+  void cheatResetRageLevel() {
     _box.put(_rageLevelKey, 0);
     _box.put(_rageKillsKey, 0);
     _notify();
   }
 
-  // ─── Interne Helfer ───────────────────────────────────────────────────────
+  void cheatMaxRageLevel() {
+    _box.put(_rageLevelKey, _maxRageLevel);
+    _box.put(_rageKillsKey, 0);
+    _notify();
+  }
 
+  // ─── Cheat: Alles zurücksetzen ────────────────────────────────────────────
+  void cheatResetSkillLevels() {
+    _box.put(_crazyLevelKey, 0);
+    _box.put(_crazyExpKey, 0);
+    _box.put(_rageLevelKey, 0);
+    _box.put(_rageKillsKey, 0);
+    _notify();
+  }
+
+  // ─── Intern ───────────────────────────────────────────────────────────────
   void _addGold(int amount) {
     _box.put(_goldKey, gold + amount);
     _notify();
@@ -187,11 +219,9 @@ class PlayerService {
   void _addExp(int amount) {
     var newExp = exp + amount;
     var newLevel = level;
-
-    while (newLevel < _maxLevel && newExp >= (newLevel + 1) * _expPerLevel) {
+    while (newLevel < _maxLevel && newExp >= _expForLevel(newLevel + 1)) {
       newLevel++;
     }
-
     _box.put(_expKey, newExp);
     _box.put(_levelKey, newLevel);
     _notify();
@@ -209,7 +239,8 @@ class PlayerService {
     unlockedSlots: unlockedSlots,
     maxEnergy: maxEnergy,
     crazyLevel: crazyLevel,
-    crazyKills: crazyKills,
+    crazyExp: crazyExp,
+    crazyExpInCurrentLevel: crazyExpInCurrentLevel,
     crazyLevelProgress: crazyLevelProgress,
     rageLevel: rageLevel,
     rageKills: rageKills,
@@ -218,7 +249,6 @@ class PlayerService {
 }
 
 // ─── Immutable Snapshot ───────────────────────────────────────────────────────
-
 class PlayerState {
   final int gold;
   final int exp;
@@ -228,10 +258,9 @@ class PlayerState {
   final int expInCurrentLevel;
   final int unlockedSlots;
   final int maxEnergy;
-
-  // ── Neu ───────────────────────────────────────────────────────────────────
   final int crazyLevel;
-  final int crazyKills;
+  final int crazyExp;
+  final int crazyExpInCurrentLevel;
   final double crazyLevelProgress;
   final int rageLevel;
   final int rageKills;
@@ -247,7 +276,8 @@ class PlayerState {
     required this.unlockedSlots,
     required this.maxEnergy,
     required this.crazyLevel,
-    required this.crazyKills,
+    required this.crazyExp,
+    required this.crazyExpInCurrentLevel,
     required this.crazyLevelProgress,
     required this.rageLevel,
     required this.rageKills,
@@ -257,5 +287,5 @@ class PlayerState {
   @override
   String toString() =>
       'PlayerState(Lv.$level | $expInCurrentLevel EXP | $gold Gold | '
-      'Crazy $crazyLevel | Rage $rageLevel)';
+      'Crazy $crazyLevel ($crazyExpInCurrentLevel CrazyEXP) | Rage $rageLevel)';
 }

@@ -49,7 +49,6 @@ class BoardState extends ChangeNotifier {
 
   // ── Legale Felder ─────────────────────────────────────────────────────────
 
-  /// Gibt alle legalen Zielfelder zurück — je nach aktivem Skill oder Standard.
   List<List<int>> getLegalMoves(int fromX, int fromY) {
     final skill = activeSkillService?.activeSkill;
     if (skill != null) {
@@ -81,6 +80,8 @@ class BoardState extends ChangeNotifier {
     final List<PieceModel> removed = [];
     if (killed != null) {
       removed.add(killed);
+      // ── Kill-Callback VOR deactivate() feuern ────────────────────────────
+      // Damit activeSkillService.isActive im onEnemyKilled noch true ist
       _killEnemy(killed);
     }
 
@@ -90,7 +91,7 @@ class BoardState extends ChangeNotifier {
     selectedPiece = null;
     _lastPlayer = player;
 
-    // Skill nach erfolgreicher Bewegung deaktivieren
+    // Skill NACH dem Kill deaktivieren
     activeSkillService?.deactivate();
 
     final spawned = _tickRespawns();
