@@ -152,6 +152,9 @@ void main() async {
                                 playerService: playerService,
                                 inventoryService: inventoryService,
                                 skillService: skillService,
+                                // ── NEU: Spiel zur Startposition teleportieren ──
+                                onResetPosition: () =>
+                                    game.teleportToSavedPosition(),
                               ),
                             ),
                             child: Container(

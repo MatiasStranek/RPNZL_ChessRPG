@@ -32,12 +32,16 @@ class CheatMenuDialog extends StatelessWidget {
   final InventoryService inventoryService;
   final SkillService skillService;
 
+  // ─── NEU: Callback um das Spiel zur Startposition zu teleportieren ────────
+  final VoidCallback onResetPosition;
+
   const CheatMenuDialog({
     super.key,
     required this.energyService,
     required this.playerService,
     required this.inventoryService,
     required this.skillService,
+    required this.onResetPosition,
   });
 
   // ─── Aktionen ─────────────────────────────────────────────────────────────
@@ -47,7 +51,8 @@ class CheatMenuDialog extends StatelessWidget {
       context,
       title: '⚠️ Alle Daten löschen?',
       message:
-          'Energy, Gold, EXP, Level, Skills und Inventar werden komplett zurückgesetzt.',
+          'Energy, Gold, EXP, Level, Skills, Inventar und gespeicherte '
+          'Position werden komplett zurückgesetzt.',
     );
     if (!confirm) return;
 
@@ -59,8 +64,13 @@ class CheatMenuDialog extends StatelessWidget {
     playerService.resetGold();
     playerService.resetExp();
     playerService.cheatResetSkillLevels();
+    // ─── Position in Hive zurücksetzen ────────────────────────────────────
+    playerService.resetPosition();
     inventoryService.clearAll();
     skillService.cheatResetAll();
+
+    // ─── Spiel live zur Startposition teleportieren ───────────────────────
+    onResetPosition();
 
     if (context.mounted) _showSnack(context, '🗑️ Alle Daten gelöscht');
   }
@@ -201,7 +211,8 @@ class CheatMenuDialog extends StatelessWidget {
                       // ── Alles löschen ──────────────────────────────────────
                       _CheatButton(
                         label: '🗑️  ALLE DATEN LÖSCHEN',
-                        subtitle: 'Energy · Gold · EXP · Skills · Inventar',
+                        subtitle:
+                            'Energy · Gold · EXP · Skills · Inventar · Position',
                         color: Colors.red.shade800,
                         onTap: () => _deleteAllData(context),
                       ),

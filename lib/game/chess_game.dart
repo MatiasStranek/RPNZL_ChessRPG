@@ -6,6 +6,7 @@ import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:collection/collection.dart';
 import '../board/board_model.dart';
+import '../board/board_loader.dart';
 import '../board/board_state.dart';
 import '../piece/piece_model.dart';
 import '../energy/energy_service.dart';
@@ -17,6 +18,8 @@ import '../animations/reward_overlay_controller.dart';
 import '../animations/dust_animation_component.dart';
 import '../skills/active_skill_service.dart';
 import '../skills/skill_service.dart';
+import '../portal/portal_service.dart';
+import '../portal/portal_types/world_portal.dart';
 import 'cell_component.dart';
 import 'piece_component.dart';
 import '../enemy/base/enemy_component.dart';
@@ -24,7 +27,7 @@ import '../enemy/types/level1/level1_enemy_component.dart';
 import 'dart:math';
 
 class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
-  final BoardModel board;
+  BoardModel board;
   final EnergyService energyService;
   final InventoryService inventoryService;
   final PlayerService playerService;
@@ -33,6 +36,11 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
 
   late BoardState state;
   late PieceComponent pieceComponent;
+  late PortalService portalService;
+
+  // ─── Aktueller Map-Name (wird beim Laden gesetzt) ─────────────────────────
+  String _currentMapName = 'map_board_1';
+
   Vector2 cameraShakeOffset = Vector2.zero();
   bool _gameOver = false;
   bool _inputLocked = false;
@@ -89,16 +97,86 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     if (player != null) state.selectPiece(player);
   }
 
+  // ── onLoad ────────────────────────────────────────────────────────────────
   @override
   Future<void> onLoad() async {
-    state = BoardState(board: board);
-    state.activeSkillService = activeSkillService;
     _lastKnownLevel = playerService.level;
     _lastKnownCrazyLevel = playerService.crazyLevel;
+    energyService.energyNotifier.addListener(_onEnergyChanged);
 
+    // ─── Immer gespeicherte Map & Position laden ───────────────────────────
+    final savedMap = playerService.savedMap;
+    final savedX = playerService.savedPosX;
+    final savedY = playerService.savedPosY;
+
+    try {
+      final savedBoard = await BoardLoader.loadMap(savedMap);
+      final playerPiece = savedBoard.pieces.firstWhere(
+        (p) => p.team == PieceTeam.player,
+      );
+      playerPiece.x = savedX;
+      playerPiece.y = savedY;
+      _currentMapName = savedMap;
+      await _initBoard(savedBoard);
+    } catch (_) {
+      // Fallback: Standard-Board falls gespeicherte Map nicht ladbar
+      playerService.resetPosition();
+      _currentMapName = 'map_board_1';
+      await _initBoard(board);
+    }
+  }
+
+  @override
+  void onRemove() {
+    energyService.energyNotifier.removeListener(_onEnergyChanged);
+    super.onRemove();
+  }
+
+  void _onEnergyChanged() {
+    if (_gameOver && energyService.energy > 0) {
+      _gameOver = false;
+    }
+  }
+
+  // ── Board initialisieren ──────────────────────────────────────────────────
+  Future<void> _initBoard(BoardModel newBoard) async {
+    board = newBoard;
+    portalService = PortalService(portals: newBoard.portals);
+    state = BoardState(board: newBoard);
+    state.activeSkillService = activeSkillService;
+
+    _setupStateCallbacks();
+
+    for (int y = 0; y < newBoard.height; y++) {
+      for (int x = 0; x < newBoard.width; x++) {
+        world.add(
+          CellComponent(
+            cellType: newBoard.cells[y][x],
+            gridX: x,
+            gridY: y,
+            state: state,
+          ),
+        );
+      }
+    }
+
+    final piece = newBoard.pieces.firstWhere((p) => p.team == PieceTeam.player);
+    pieceComponent = PieceComponent(piece: piece);
+    _setupPieceCallbacks();
+    world.add(pieceComponent);
+
+    for (final enemy in newBoard.pieces.where(
+      (p) => p.team == PieceTeam.enemy,
+    )) {
+      _addEnemy(enemy);
+    }
+    // Kein savePosition hier – nur beim echten Zug & Portal-Wechsel speichern
+  }
+
+  // ── State-Callbacks ───────────────────────────────────────────────────────
+  void _setupStateCallbacks() {
     state.onSpawnChanged = (spawned, removed) {
       for (final piece in removed) {
-        // comp aus Map holen (einmal!) und Animation + Entfernen aufrufen
         final comp = _enemyComponents.remove(piece);
         comp?.playDeathAnimation();
       }
@@ -113,75 +191,52 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
       }
     };
 
-    state.onEnemyKilled = (enemy) {
-      // ── Item Drop ────────────────────────────────────────────────────────
-      if (_random.nextDouble() < 0.20) {
-        final item = ItemFactory.energyDrop();
-        final added = inventoryService.addItem(item);
-        if (added) {
-          RewardOverlayController.instance.fireItem(item.name);
-        }
-      }
-
-      // ── Gold & Standard-EXP ──────────────────────────────────────────────
-      final reward = rewardFor(enemy.enemyLevel);
-      playerService.rewardForKill(enemy.enemyLevel);
-
-      final enemyScreenPos = _enemyScreenPosition(enemy.x, enemy.y);
-      RewardOverlayController.instance.fireGold(
-        reward.gold,
-        position: enemyScreenPos,
-      );
-
-      // ── CrazyExp vergeben (nur bei aktivem MoveSkill) ────────────────────
-      if (activeSkillService.isActive) {
-        final crazyExp = crazyExpFor(enemy.enemyLevel);
-        final crazyLeveledUp = playerService.addCrazyExp(crazyExp);
-
-        if (crazyLeveledUp) {
-          final newCrazyLevel = playerService.crazyLevel;
-          _lastKnownCrazyLevel = newCrazyLevel;
-          RewardOverlayController.instance.fireLevelUp(newCrazyLevel);
-          skillService.checkAndUnlockAll();
-        }
-      }
-
-      // ── Player-Level-Up prüfen ───────────────────────────────────────────
-      skillService.checkAndUnlockAll();
-
-      final newLevel = playerService.level;
-      if (newLevel > _lastKnownLevel) {
-        _lastKnownLevel = newLevel;
-        RewardOverlayController.instance.fireLevelUp(newLevel);
-        skillService.checkAndUnlockAll();
-      }
-    };
+    state.onEnemyKilled = _handleEnemyKilled;
 
     state.onPlayerDefeated = (killer) {
       _gameOver = true;
       _inputLocked = false;
       energyService.drainEnergy();
     };
+  }
 
-    energyService.energyNotifier.addListener(_onEnergyChanged);
-
-    for (int y = 0; y < board.height; y++) {
-      for (int x = 0; x < board.width; x++) {
-        world.add(
-          CellComponent(
-            cellType: board.cells[y][x],
-            gridX: x,
-            gridY: y,
-            state: state,
-          ),
-        );
+  // ── Enemy-Kill Handler ────────────────────────────────────────────────────
+  void _handleEnemyKilled(PieceModel enemy) {
+    if (_random.nextDouble() < 0.20) {
+      final item = ItemFactory.energyDrop();
+      if (inventoryService.addItem(item)) {
+        RewardOverlayController.instance.fireItem(item.name);
       }
     }
 
-    final piece = board.pieces.firstWhere((p) => p.team == PieceTeam.player);
-    pieceComponent = PieceComponent(piece: piece);
-    world.add(pieceComponent);
+    final reward = rewardFor(enemy.enemyLevel);
+    final levelBefore = playerService.level;
+    playerService.rewardForKill(enemy.enemyLevel);
+    final levelAfter = playerService.level;
 
+    final enemyPos = _enemyScreenPosition(enemy.x, enemy.y);
+    RewardOverlayController.instance.fireGold(reward.gold, position: enemyPos);
+
+    if (activeSkillService.isActive) {
+      final crazyLeveledUp = playerService.addCrazyExp(
+        crazyExpFor(enemy.enemyLevel),
+      );
+      if (crazyLeveledUp) {
+        _lastKnownCrazyLevel = playerService.crazyLevel;
+        RewardOverlayController.instance.fireLevelUp(playerService.crazyLevel);
+        skillService.checkAndUnlockAll();
+      }
+    }
+
+    if (levelAfter > levelBefore) {
+      _lastKnownLevel = levelAfter;
+      RewardOverlayController.instance.fireLevelUp(levelAfter);
+      skillService.checkAndUnlockAll();
+    }
+  }
+
+  // ── Piece-Callbacks ───────────────────────────────────────────────────────
+  void _setupPieceCallbacks() {
     pieceComponent.onDropped = (gridX, gridY, fallback) {
       if (_inputLocked) {
         pieceComponent.position = fallback;
@@ -198,7 +253,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
         return;
       }
 
-      // ── Energie nur bei aktivem Skill abziehen ───────────────────────────
       if (activeSkillService.isActive) {
         final moveCost = activeSkillService.activeSkill!.energyCost;
         if (!energyService.spendEnergy(amount: moveCost)) {
@@ -214,6 +268,11 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
       state.movePiece(gridX, gridY);
       pieceComponent.moveTo(player.x, player.y);
 
+      // ─── Position nach jedem Drag-Zug speichern ───────────────────────
+      playerService.savePosition(player.x, player.y, _currentMapName);
+
+      _checkPortal(player.x, player.y);
+
       Future.delayed(const Duration(milliseconds: 16), () {
         _shakeCamera(oldX, oldY, player.x, player.y);
       });
@@ -223,24 +282,91 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
         state.moveEnemiesNow();
       });
     };
-
-    for (final enemy in board.pieces.where((p) => p.team == PieceTeam.enemy)) {
-      _addEnemy(enemy);
-    }
   }
 
-  @override
-  void onRemove() {
-    energyService.energyNotifier.removeListener(_onEnergyChanged);
-    super.onRemove();
+  // ── Portal-Logik ──────────────────────────────────────────────────────────
+  void _checkPortal(int x, int y) {
+    final portal = portalService.worldPortalAt(x, y);
+    if (portal == null) return;
+    _travelToMap(portal);
   }
 
-  void _onEnergyChanged() {
-    if (_gameOver && energyService.energy > 0) {
+  Future<void> _travelToMap(WorldPortal portal) async {
+    _inputLocked = true;
+
+    final newBoard = await BoardLoader.loadMap(portal.targetMap);
+
+    final targetPortalService = PortalService(portals: newBoard.portals);
+    final linkedPortal = targetPortalService.portalById(portal.linkedPortalId);
+
+    final spawnX = linkedPortal?.x ?? 1;
+    final spawnY = linkedPortal?.y ?? 1;
+
+    final playerPiece = newBoard.pieces.firstWhere(
+      (p) => p.team == PieceTeam.player,
+    );
+    playerPiece.x = spawnX;
+    playerPiece.y = spawnY;
+
+    // ─── Neue Map & Spawn-Position speichern ──────────────────────────────
+    _currentMapName = portal.targetMap;
+    playerService.savePosition(spawnX, spawnY, _currentMapName);
+
+    world.removeAll(world.children.toList());
+    _enemyComponents.clear();
+
+    await _initBoard(newBoard);
+    _inputLocked = false;
+  }
+
+  // ── Teleport zur gespeicherten Position (nach Reset) ──────────────────────
+  /// Wird vom CheatMenu nach einem kompletten Reset aufgerufen.
+  /// Liest die Startposition direkt aus der Map-JSON (Player-Piece),
+  /// damit die Position mit der tatsächlichen Spawn-Position übereinstimmt.
+  Future<void> teleportToSavedPosition() async {
+    _inputLocked = true;
+
+    // Nach Reset enthält savedMap die Default-Map ('map_board_1').
+    // savedPosX/Y wurden durch resetPosition() gelöscht → werden NICHT
+    // verwendet. Die echte Startposition kommt aus der Map-JSON.
+    final mapName = playerService.savedMap;
+
+    try {
+      final newBoard = await BoardLoader.loadMap(mapName);
+
+      // ✅ Startposition direkt aus der JSON lesen – korrekte Mitte/Spawn
+      final playerPiece = newBoard.pieces.firstWhere(
+        (p) => p.team == PieceTeam.player,
+      );
+      // playerPiece.x / .y sind bereits die JSON-Werte → NICHT überschreiben
+
+      _currentMapName = mapName;
+
+      // Gespeicherte Position in Hive auf die echte JSON-Startposition setzen
+      playerService.savePosition(playerPiece.x, playerPiece.y, mapName);
+
+      world.removeAll(world.children.toList());
+      _enemyComponents.clear();
+
+      await _initBoard(newBoard);
+    } catch (_) {
+      // Fallback: Startmap hart laden
+      _currentMapName = 'map_board_1';
+      final fallback = await BoardLoader.loadMap('map_board_1');
+      final playerPiece = fallback.pieces.firstWhere(
+        (p) => p.team == PieceTeam.player,
+      );
+      playerService.savePosition(playerPiece.x, playerPiece.y, 'map_board_1');
+      world.removeAll(world.children.toList());
+      _enemyComponents.clear();
+      await _initBoard(fallback);
+    } finally {
+      _inputLocked = false;
       _gameOver = false;
     }
   }
 
+  // ── update ────────────────────────────────────────────────────────────────
   @override
   void update(double dt) {
     super.update(dt);
@@ -263,6 +389,7 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     return _enemyComponents.values.any((c) => c.isMoving);
   }
 
+  // ── onTapDown ─────────────────────────────────────────────────────────────
   @override
   void onTapDown(TapDownEvent event) {
     if (_inputLocked) return;
@@ -300,7 +427,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
       return;
     }
 
-    // ── Energie nur bei aktivem Skill abziehen ───────────────────────────
     if (activeSkillService.isActive) {
       final moveCost = activeSkillService.activeSkill!.energyCost;
       if (!energyService.spendEnergy(amount: moveCost)) {
@@ -311,9 +437,13 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
 
     final oldX = player.x;
     final oldY = player.y;
-
     state.movePiece(gridX, gridY);
     pieceComponent.moveTo(player.x, player.y);
+
+    // ─── Position nach jedem Tap-Zug speichern ────────────────────────────
+    playerService.savePosition(player.x, player.y, _currentMapName);
+
+    _checkPortal(player.x, player.y);
 
     Future.delayed(const Duration(milliseconds: 16), () {
       _shakeCamera(oldX, oldY, player.x, player.y);
@@ -325,14 +455,13 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     });
   }
 
+  // ── Hilfsmethoden ─────────────────────────────────────────────────────────
   void _addEnemy(PieceModel piece) {
     final EnemyComponent comp = switch (piece.enemyLevel) {
       1 => Level1EnemyComponent(piece: piece),
       _ => Level1EnemyComponent(piece: piece),
     };
 
-    // Staubanimation direkt in der World spawnen,
-    // unabhängig vom Lifecycle der Enemy-Komponente
     comp.onPlayDeathEffect = (pos) {
       world.add(DustAnimationComponent(cellPosition: pos));
     };
@@ -354,10 +483,8 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     final worldX = gridX * cellSize + cellSize / 2;
     final worldY = gridY * cellSize + cellSize / 2;
     final camPos = camera.viewfinder.position;
-    final screenCenterX = screenSize.x / 2;
-    final screenCenterY = screenSize.y / 2;
-    final screenX = screenCenterX + (worldX - camPos.x);
-    final screenY = screenCenterY + (worldY - camPos.y);
+    final screenX = screenSize.x / 2 + (worldX - camPos.x);
+    final screenY = screenSize.y / 2 + (worldY - camPos.y);
     return Offset(screenX, screenY);
   }
 }

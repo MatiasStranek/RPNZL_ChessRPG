@@ -18,7 +18,6 @@ class BoardState extends ChangeNotifier {
   PieceModel? selectedPiece;
   PieceModel? _lastPlayer;
 
-  // ── Skill-Integration ─────────────────────────────────────────────────────
   ActiveSkillService? activeSkillService;
   final StandardMove _standardMove = StandardMove();
 
@@ -65,6 +64,13 @@ class BoardState extends ChangeNotifier {
     ).any((m) => m[0] == x && m[1] == y);
   }
 
+  // ── Hilfsmethode: ist eine Zelle ein Portal-Typ? ──────────────────────────
+  // Gilt für world- UND beat-Portale – Gegner dürfen auf keines davon
+  bool _isPortalCell(int x, int y) {
+    final cell = board.cells[y][x];
+    return cell == CellType.portal || cell == CellType.beat;
+  }
+
   // ── Bewegung ──────────────────────────────────────────────────────────────
 
   void movePiece(int x, int y) {
@@ -80,8 +86,6 @@ class BoardState extends ChangeNotifier {
     final List<PieceModel> removed = [];
     if (killed != null) {
       removed.add(killed);
-      // ── Kill-Callback VOR deactivate() feuern ────────────────────────────
-      // Damit activeSkillService.isActive im onEnemyKilled noch true ist
       _killEnemy(killed);
     }
 
@@ -91,7 +95,6 @@ class BoardState extends ChangeNotifier {
     selectedPiece = null;
     _lastPlayer = player;
 
-    // Skill NACH dem Kill deaktivieren
     activeSkillService?.deactivate();
 
     final spawned = _tickRespawns();
@@ -130,7 +133,7 @@ class BoardState extends ChangeNotifier {
     }
   }
 
-  // ─── Interna ───────────────────────────────────────────────────────────────
+  // ─── Interna ──────────────────────────────────────────────────────────────
 
   void _killEnemy(PieceModel enemy, {bool dropItem = true}) {
     board.pieces.remove(enemy);
@@ -234,6 +237,7 @@ class BoardState extends ChangeNotifier {
         if (nx < 0 || nx >= board.width || ny < 0 || ny >= board.height)
           continue;
         if (board.cells[ny][nx] == CellType.hole) continue;
+        if (_isPortalCell(nx, ny)) continue; // ← world & beat gesperrt
 
         if (_enemies().any(
           (e) =>
@@ -303,6 +307,7 @@ class BoardState extends ChangeNotifier {
     for (int y = zone.top; y <= zone.bottom; y++) {
       for (int x = zone.left; x <= zone.right; x++) {
         if (board.cells[y][x] == CellType.hole) continue;
+        if (_isPortalCell(x, y)) continue; // ← world & beat kein Spawn
         if (board.pieces.any((p) => p.x == x && p.y == y)) continue;
         candidates.add([x, y]);
       }

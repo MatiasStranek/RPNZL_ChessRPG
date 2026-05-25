@@ -33,7 +33,6 @@ class _RewardOverlayState extends State<RewardOverlay> {
       RewardOverlayController.instance.consume(event);
 
       if (event.type == RewardEventType.levelUp) {
-        // Level-Up: Top-Banner, cancelt vorheriges
         setState(() {
           if (_currentBanner != null) {
             _active.remove(_currentBanner);
@@ -51,7 +50,6 @@ class _RewardOverlayState extends State<RewardOverlay> {
           _active.add(anim);
         });
       } else {
-        // Gold + Item: Float-Animationen
         setState(() {
           _active.add(
             _ActiveAnimation(
@@ -84,7 +82,6 @@ class _RewardOverlayState extends State<RewardOverlay> {
           onDone: () => a.onDone(a),
         );
       case RewardEventType.item:
-        // ── Blitz fliegt auf einem Bogen nach oben ────────────────────────
         return _BoltFloat(
           key: a.key,
           startOffset: a.event.worldPosition,
@@ -173,7 +170,6 @@ class _BoltFloatState extends State<_BoltFloat>
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) {
-        // Bogen nach oben links (Richtung Inventar/HUD)
         final t = _progress.value;
         final cx = startX - 60 * t;
         final cy = startY - 80 * t - 40 * sin(t * pi);
@@ -236,27 +232,35 @@ class _TopBanner extends StatefulWidget {
 class _TopBannerState extends State<_TopBanner>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
+  late Animation<double> _ring;
   late Animation<double> _opacity;
-  late Animation<double> _y;
+  late Animation<double> _textScale;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2000),
+      duration: const Duration(milliseconds: 2500),
     );
 
+    _ring = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.2), weight: 30),
+    ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+
     _opacity = TweenSequence([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 0.85), weight: 15),
-      TweenSequenceItem(tween: Tween(begin: 0.85, end: 0.85), weight: 55),
-      TweenSequenceItem(tween: Tween(begin: 0.85, end: 0.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 15),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 55),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
     ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
 
-    _y = TweenSequence([
-      TweenSequenceItem(tween: Tween(begin: -12.0, end: 0.0), weight: 15),
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 0.0), weight: 55),
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: -8.0), weight: 30),
+    _textScale = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.15), weight: 25),
+      TweenSequenceItem(tween: Tween(begin: 1.15, end: 1.0), weight: 15),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.8), weight: 20),
     ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
 
     _ctrl.forward().then((_) => widget.onDone());
@@ -268,48 +272,88 @@ class _TopBannerState extends State<_TopBanner>
     super.dispose();
   }
 
+  String get _levelNumber {
+    final match = RegExp(r'Lv\.(\d+)').firstMatch(widget.label);
+    return match?.group(1) ?? '';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) => Positioned(
-        top: MediaQuery.of(context).padding.top + 12 + _y.value,
-        left: 0,
-        right: 0,
+      builder: (_, __) => Positioned.fill(
         child: Opacity(
           opacity: _opacity.value,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.65),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: widget.color.withOpacity(0.4),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  widget.icon,
-                  const SizedBox(width: 10),
-                  Text(
-                    widget.label,
-                    style: TextStyle(
-                      color: widget.color,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1,
-                      shadows: [
-                        Shadow(
-                          color: widget.color.withOpacity(0.5),
-                          blurRadius: 8,
-                        ),
-                      ],
+          child: CustomPaint(
+            painter: _LevelUpPainter(
+              progress: _ring.value,
+              color: widget.color,
+              centerX: centerX,
+              centerY: centerY,
+            ),
+            child: Center(
+              child: Transform.scale(
+                scale: _textScale.value,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ── LEVEL UP! ────────────────────────────────────────
+                    Text(
+                      'LEVEL UP!',
+                      style: TextStyle(
+                        color: widget.color,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 4,
+                        shadows: [
+                          Shadow(
+                            color: widget.color.withOpacity(0.9),
+                            blurRadius: 24,
+                          ),
+                          Shadow(
+                            color: widget.color.withOpacity(0.5),
+                            blurRadius: 48,
+                          ),
+                          const Shadow(
+                            color: Colors.black,
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    // ── Lv. X ────────────────────────────────────────────
+                    Text(
+                      'Lv. $_levelNumber',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 48,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                        shadows: [
+                          Shadow(
+                            color: widget.color.withOpacity(0.8),
+                            blurRadius: 20,
+                          ),
+                          Shadow(
+                            color: widget.color.withOpacity(0.4),
+                            blurRadius: 40,
+                          ),
+                          const Shadow(
+                            color: Colors.black,
+                            blurRadius: 6,
+                            offset: Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -317,6 +361,104 @@ class _TopBannerState extends State<_TopBanner>
       ),
     );
   }
+}
+
+// ─── Painter für Ring + Strahlen ──────────────────────────────────────────────
+
+class _LevelUpPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final double centerX;
+  final double centerY;
+
+  _LevelUpPainter({
+    required this.progress,
+    required this.color,
+    required this.centerX,
+    required this.centerY,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(centerX, centerY);
+    final maxRadius = size.shortestSide * 0.38;
+    final radius = maxRadius * progress.clamp(0.0, 1.0);
+
+    if (radius <= 0) return;
+
+    // ── Dunkles Overlay ───────────────────────────────────────────────────
+    final overlayPaint = Paint()..color = Colors.black.withOpacity(0.45);
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), overlayPaint);
+
+    // ── Äußerer Glow-Ring ─────────────────────────────────────────────────
+    final glowPaint = Paint()
+      ..color = color.withOpacity(0.15)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 32)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 40;
+    canvas.drawCircle(center, radius, glowPaint);
+
+    // ── Mittlerer Ring ────────────────────────────────────────────────────
+    final midPaint = Paint()
+      ..color = color.withOpacity(0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 16;
+    canvas.drawCircle(center, radius, midPaint);
+
+    // ── Harter Ring ───────────────────────────────────────────────────────
+    final ringPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    canvas.drawCircle(center, radius, ringPaint);
+
+    // ── Innerer Füll-Glow ─────────────────────────────────────────────────
+    final innerGlow = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withOpacity(0.18),
+          color.withOpacity(0.06),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawCircle(center, radius, innerGlow);
+
+    // ── Strahlen ──────────────────────────────────────────────────────────
+    const rayCount = 12;
+    final rayPaint = Paint()
+      ..color = color.withOpacity(0.6)
+      ..strokeWidth = 1.5
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+
+    for (int i = 0; i < rayCount; i++) {
+      final angle = (i / rayCount) * 2 * pi;
+      final innerR = radius * 0.85;
+      final outerR = radius + 20 + (i % 3 == 0 ? 16.0 : 0.0);
+      final startX = center.dx + cos(angle) * innerR;
+      final startY = center.dy + sin(angle) * innerR;
+      final endX = center.dx + cos(angle) * outerR;
+      final endY = center.dy + sin(angle) * outerR;
+      canvas.drawLine(Offset(startX, startY), Offset(endX, endY), rayPaint);
+    }
+
+    // ── Kleine Partikel am Ring ───────────────────────────────────────────
+    const particleCount = 24;
+    final particlePaint = Paint()..color = color.withOpacity(0.8);
+
+    for (int i = 0; i < particleCount; i++) {
+      final angle = (i / particleCount) * 2 * pi;
+      final r = radius + (i % 2 == 0 ? 6.0 : -6.0);
+      final px = center.dx + cos(angle) * r;
+      final py = center.dy + sin(angle) * r;
+      canvas.drawCircle(Offset(px, py), i % 3 == 0 ? 3.0 : 1.8, particlePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LevelUpPainter old) =>
+      old.progress != progress || old.color != color;
 }
 
 // ─── Float-Label (Gold) ───────────────────────────────────────────────────────

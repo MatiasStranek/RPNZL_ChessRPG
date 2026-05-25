@@ -28,6 +28,12 @@ class PlayerService {
   static const String _rageLevelKey = 'rage_level';
   static const String _rageKillsKey = 'rage_kills';
 
+  // ─── Position ─────────────────────────────────────────────────────────────
+  static const String _posXKey = 'pos_x';
+  static const String _posYKey = 'pos_y';
+  static const String _posMapKey = 'pos_map';
+  static const String _defaultMap = 'map_board_1';
+
   late Box _box;
   late ValueNotifier<PlayerState> playerNotifier;
 
@@ -98,6 +104,16 @@ class PlayerService {
     return (rageKills / _killsPerRageLevel).clamp(0.0, 1.0);
   }
 
+  // ─── Getter: Position ─────────────────────────────────────────────────────
+  // Hinweis: savedPosX/Y werden nach resetPosition() nicht mehr für den
+  // teleportToSavedPosition()-Flow verwendet – die echte Startposition
+  // kommt direkt aus der Map-JSON. Die defaultValues dienen nur als
+  // Fallback beim ersten App-Start.
+  int get savedPosX => _box.get(_posXKey, defaultValue: 1) as int;
+  int get savedPosY => _box.get(_posYKey, defaultValue: 1) as int;
+  String get savedMap =>
+      _box.get(_posMapKey, defaultValue: _defaultMap) as String;
+
   // ─── Aktionen: Standard ───────────────────────────────────────────────────
   PlayerState rewardForKill(int enemyLevel) {
     final reward = rewardFor(enemyLevel);
@@ -142,6 +158,23 @@ class PlayerService {
     _box.put(_rageKillsKey, newKills);
     _notify();
     return false;
+  }
+
+  // ─── Aktionen: Position ───────────────────────────────────────────────────
+  void savePosition(int x, int y, String mapName) {
+    _box.put(_posXKey, x);
+    _box.put(_posYKey, y);
+    _box.put(_posMapKey, mapName);
+    // kein _notify() nötig – Position ist kein Teil von PlayerState
+  }
+
+  /// Setzt nur die Map auf den Default zurück und löscht die gespeicherten
+  /// x/y-Koordinaten. Die echte Startposition wird beim nächsten
+  /// teleportToSavedPosition()-Aufruf direkt aus der Map-JSON gelesen.
+  void resetPosition() {
+    _box.put(_posMapKey, _defaultMap);
+    _box.delete(_posXKey);
+    _box.delete(_posYKey);
   }
 
   // ─── Cheat: Standard ─────────────────────────────────────────────────────
