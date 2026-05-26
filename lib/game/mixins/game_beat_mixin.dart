@@ -95,7 +95,12 @@ mixin GameBeatMixin on GameStateMixin {
 
   // ── Teleport zur gespeicherten Position ──────────────────────────────────
   Future<void> teleportToSavedPosition() async {
+    // FIX: beatWorldId sichern BEVOR beatSession auf null gesetzt wird,
+    // dann Gegner-Zustände zurücksetzen damit die nächste Runde frisch startet.
     if (beatSession != null) {
+      final beatWorldId = beatSession!.beatWorldId;
+      await beatLevelService.resetEnemyStates(beatWorldId);
+
       beatSession = null;
       currentBeatMapName = '';
       onBeatSessionChanged?.call(false);

@@ -7,6 +7,7 @@ import '../../beat/beat_map_loader.dart';
 import '../../beat/beat_world_session.dart';
 import '../../beat/beat_popup.dart';
 import '../../beat/beat_level_config.dart';
+import '../../chest/chest_model.dart';
 import '../../portal/portal_service.dart';
 import '../../portal/portal_types/world_portal.dart';
 import '../../portal/portal_types/beat_portal.dart';
@@ -50,10 +51,31 @@ mixin GamePortalMixin on GameStateMixin {
     await beatLevelService.markCompleted(session.beatWorldId);
     await beatLevelService.resetEnemyStates(session.beatWorldId);
 
+    // ── Kiste vergeben (nur beim ersten Abschluss) ────────────────────────
+    if (!wasAlreadyCompleted) {
+      final chest = ChestModel(
+        id: '${session.beatWorldId}_${DateTime.now().millisecondsSinceEpoch}',
+        fromBeatWorldId: session.beatWorldId,
+        displayName: _formatBeatWorldName(session.beatWorldId),
+        earnedAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      );
+      await chestService.addChest(chest);
+    }
+
+    // ── Beat-Complete Animation feuern ────────────────────────────────────
     RewardOverlayController.instance.fireBeatComplete(
       session.beatWorldId,
       repeated: wasAlreadyCompleted,
     );
+
+    // ── Kisten-Animation feuern (nur beim ersten Abschluss) ───────────────
+    // Verzögerung: beatComplete-Animation läuft 3500 ms → danach 400 ms Puffer
+    if (!wasAlreadyCompleted) {
+      final levelName = _formatBeatWorldName(session.beatWorldId);
+      Future.delayed(const Duration(milliseconds: 3900), () {
+        RewardOverlayController.instance.fireChestEarned(levelName);
+      });
+    }
 
     beatSession = null;
     currentBeatMapName = '';
@@ -214,14 +236,8 @@ mixin GamePortalMixin on GameStateMixin {
 
     inputLocked = true;
 
-    final states = session.getEnemyStates(currentBeatMapName);
-    if (states != null && currentBeatMapName.isNotEmpty) {
-      await beatLevelService.saveEnemyStates(
-        session.beatWorldId,
-        currentBeatMapName,
-        states,
-      );
-    }
+    // Gegner-Zustände komplett zurücksetzen – nächste Runde startet frisch.
+    await beatLevelService.resetEnemyStates(session.beatWorldId);
 
     beatSession = null;
     currentBeatMapName = '';
@@ -261,5 +277,18 @@ mixin GamePortalMixin on GameStateMixin {
     } finally {
       inputLocked = false;
     }
+  }
+
+  // ── Hilfsfunktion: beatWorldId → lesbarer Name ────────────────────────────
+  // Wandelt z.B. "beat_maps_level_1" → "Beat Maps Level 1"
+  String _formatBeatWorldName(String beatWorldId) {
+    return beatWorldId
+        .split('_')
+        .map(
+          (word) => word.isNotEmpty
+              ? word[0].toUpperCase() + word.substring(1)
+              : word,
+        )
+        .join(' ');
   }
 }

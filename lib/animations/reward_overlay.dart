@@ -100,7 +100,13 @@ class _RewardOverlayState extends State<RewardOverlay> {
         return _BeatCompleteAnimation(
           key: a.key,
           levelName: a.event.beatLevelName ?? 'Beat Level',
-          repeated: a.event.repeated, // ← NEU
+          repeated: a.event.repeated,
+          onDone: () => a.onDone(a),
+        );
+      case RewardEventType.chestEarned:
+        return _ChestEarnedAnimation(
+          key: a.key,
+          levelName: a.event.beatLevelName ?? 'Beat Level',
           onDone: () => a.onDone(a),
         );
     }
@@ -120,16 +126,17 @@ class _ActiveAnimation {
 }
 
 // ─── Beat Complete Animation ──────────────────────────────────────────────────
+// (unverändert)
 
 class _BeatCompleteAnimation extends StatefulWidget {
   final String levelName;
-  final bool repeated; // ← NEU
+  final bool repeated;
   final VoidCallback onDone;
 
   const _BeatCompleteAnimation({
     super.key,
     required this.levelName,
-    required this.repeated, // ← NEU
+    required this.repeated,
     required this.onDone,
   });
 
@@ -142,12 +149,9 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
   late AnimationController _mainCtrl;
   late AnimationController _particleCtrl;
 
-  // Haupt-Animationen
   late Animation<double> _opacity;
   late Animation<double> _scale;
   late Animation<double> _slideY;
-
-  // Partikel
   late Animation<double> _particleProgress;
 
   final List<_Particle> _particles = [];
@@ -157,31 +161,26 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
   void initState() {
     super.initState();
 
-    // Partikel generieren
     for (int i = 0; i < 40; i++) {
       _particles.add(_Particle(random: _random));
     }
 
-    // Haupt-Controller: 3.5 Sekunden
     _mainCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3500),
     );
 
-    // Partikel-Controller: 2.5 Sekunden
     _particleCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2500),
     );
 
-    // Opacity: einblenden → halten → ausblenden
     _opacity = TweenSequence([
       TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 10),
       TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 60),
       TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
     ]).animate(CurvedAnimation(parent: _mainCtrl, curve: Curves.easeInOut));
 
-    // Scale: von unten reinpoppen
     _scale = TweenSequence([
       TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.1), weight: 15),
       TweenSequenceItem(tween: Tween(begin: 1.1, end: 1.0), weight: 10),
@@ -189,7 +188,6 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
       TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.85), weight: 20),
     ]).animate(CurvedAnimation(parent: _mainCtrl, curve: Curves.easeOut));
 
-    // SlideY: von unten nach oben
     _slideY = Tween(begin: 60.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _mainCtrl,
@@ -225,13 +223,10 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
         return Positioned.fill(
           child: Stack(
             children: [
-              // ── Dunkles Overlay ─────────────────────────────────────
               Opacity(
                 opacity: _opacity.value * 0.5,
                 child: Container(color: Colors.black),
               ),
-
-              // ── Partikel ────────────────────────────────────────────
               CustomPaint(
                 size: size,
                 painter: _ParticlePainter(
@@ -241,8 +236,6 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
                   centerY: centerY,
                 ),
               ),
-
-              // ── Ring-Explosion ──────────────────────────────────────
               CustomPaint(
                 size: size,
                 painter: _BeatRingPainter(
@@ -251,8 +244,6 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
                   centerY: centerY,
                 ),
               ),
-
-              // ── Text ────────────────────────────────────────────────
               Opacity(
                 opacity: _opacity.value,
                 child: Transform.translate(
@@ -263,7 +254,6 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // ── ✦ Symbol ───────────────────────────────
                           Text(
                             '✦',
                             style: TextStyle(
@@ -286,8 +276,6 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
                             ),
                           ),
                           const SizedBox(height: 12),
-
-                          // ── Level Name ─────────────────────────────
                           Text(
                             widget.levelName,
                             style: TextStyle(
@@ -311,11 +299,9 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
                             ),
                           ),
                           const SizedBox(height: 8),
-
-                          // ── Abgeschlossen / Erneut Abgeschlossen ───
                           Text(
                             widget.repeated
-                                ? 'Erneut Abgeschlossen' // ← NEU
+                                ? 'Erneut Abgeschlossen'
                                 : 'Abgeschlossen',
                             style: TextStyle(
                               color: Colors.white,
@@ -343,10 +329,7 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
                               ],
                             ),
                           ),
-
                           const SizedBox(height: 16),
-
-                          // ── Trennlinie ─────────────────────────────
                           Container(
                             width: 180,
                             height: 1.5,
@@ -372,6 +355,527 @@ class _BeatCompleteAnimationState extends State<_BeatCompleteAnimation>
       },
     );
   }
+}
+
+// ─── Kisten-Belohnungsanimation ───────────────────────────────────────────────
+//
+// Erscheint nach der beatComplete-Animation (wird mit Verzögerung gefeuert).
+// Zeitplan: 500 ms Einblenden → 1.5 s Halten → 600 ms Ausblenden = ~2.6 s gesamt.
+// Kiste wackelt (Bounce) rein, Glanz-Strahl dreht sich, Schimmer-Partikel.
+
+class _ChestEarnedAnimation extends StatefulWidget {
+  final String levelName;
+  final VoidCallback onDone;
+
+  const _ChestEarnedAnimation({
+    super.key,
+    required this.levelName,
+    required this.onDone,
+  });
+
+  @override
+  State<_ChestEarnedAnimation> createState() => _ChestEarnedAnimationState();
+}
+
+class _ChestEarnedAnimationState extends State<_ChestEarnedAnimation>
+    with TickerProviderStateMixin {
+  // Haupt-Timeline (Gesamt-Sichtbarkeit)
+  late AnimationController _mainCtrl;
+  // Kiste: Bounce-Eingang
+  late AnimationController _bounceCtrl;
+  // Glanz-Rotation
+  late AnimationController _shineCtrl;
+  // Schimmer-Partikel
+  late AnimationController _sparkCtrl;
+
+  late Animation<double> _opacity;
+  late Animation<double> _chestScale;
+  late Animation<double> _chestSlideY;
+  late Animation<double> _shineRotation;
+  late Animation<double> _sparkProgress;
+
+  final List<_SparkParticle> _sparks = [];
+  final Random _rnd = Random();
+
+  static const _chestColor = Color(0xFFFFB340);
+  static const _chestGlow = Color(0xFFFFD700);
+  static const _lidColor = Color(0xFFCC8800);
+
+  @override
+  void initState() {
+    super.initState();
+
+    for (int i = 0; i < 24; i++) {
+      _sparks.add(_SparkParticle(random: _rnd));
+    }
+
+    // ── Controller ────────────────────────────────────────────────────────
+    _mainCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    );
+
+    _bounceCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+
+    _shineCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+
+    _sparkCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+
+    // ── Animationen ───────────────────────────────────────────────────────
+
+    // Einblenden → halten → ausblenden
+    _opacity = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 12),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 60),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 28),
+    ]).animate(CurvedAnimation(parent: _mainCtrl, curve: Curves.easeInOut));
+
+    // Kiste: von unten reinhüpfen mit Überschwinger
+    _chestScale = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.2), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.2, end: 0.9), weight: 20),
+      TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.05), weight: 20),
+      TweenSequenceItem(tween: Tween(begin: 1.05, end: 1.0), weight: 20),
+    ]).animate(CurvedAnimation(parent: _bounceCtrl, curve: Curves.easeOut));
+
+    _chestSlideY = Tween(
+      begin: 80.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(parent: _bounceCtrl, curve: Curves.easeOut));
+
+    // Glanz dreht sich einmal herum
+    _shineRotation = Tween(
+      begin: 0.0,
+      end: 2 * pi,
+    ).animate(CurvedAnimation(parent: _shineCtrl, curve: Curves.easeInOut));
+
+    _sparkProgress = CurvedAnimation(parent: _sparkCtrl, curve: Curves.easeOut);
+
+    // ── Starten ───────────────────────────────────────────────────────────
+    _mainCtrl.forward().then((_) => widget.onDone());
+    _bounceCtrl.forward();
+    // Partikel + Glanz mit kurzem Delay (nach Bounce-Peak)
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        _shineCtrl.forward();
+        _sparkCtrl.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _mainCtrl.dispose();
+    _bounceCtrl.dispose();
+    _shineCtrl.dispose();
+    _sparkCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        _mainCtrl,
+        _bounceCtrl,
+        _shineCtrl,
+        _sparkCtrl,
+      ]),
+      builder: (_, __) {
+        return Positioned.fill(
+          child: Opacity(
+            opacity: _opacity.value,
+            child: Stack(
+              children: [
+                // ── Dunkles Overlay (leichter als beatComplete) ──────────
+                Container(
+                  color: Colors.black.withOpacity(0.55 * _opacity.value),
+                ),
+
+                // ── Schimmer-Partikel ────────────────────────────────────
+                CustomPaint(
+                  size: size,
+                  painter: _SparkPainter(
+                    sparks: _sparks,
+                    progress: _sparkProgress.value,
+                    centerX: size.width / 2,
+                    centerY: size.height / 2 - 20,
+                    color: _chestGlow,
+                  ),
+                ),
+
+                // ── Kiste + Text ─────────────────────────────────────────
+                Center(
+                  child: Transform.translate(
+                    offset: Offset(0, _chestSlideY.value),
+                    child: Transform.scale(
+                      scale: _chestScale.value,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Kisten-Icon mit Glanz
+                          _buildChestIcon(),
+                          const SizedBox(height: 20),
+
+                          // "Kiste erhalten!" Titel
+                          Text(
+                            'Kiste erhalten!',
+                            style: TextStyle(
+                              color: _chestGlow,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 2.5,
+                              shadows: [
+                                Shadow(
+                                  color: _chestGlow.withOpacity(0.9),
+                                  blurRadius: 20,
+                                ),
+                                Shadow(
+                                  color: _chestGlow.withOpacity(0.5),
+                                  blurRadius: 40,
+                                ),
+                                const Shadow(
+                                  color: Colors.black,
+                                  blurRadius: 5,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Level-Name als Herkunft
+                          Text(
+                            'aus: ${widget.levelName}',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.75),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 1.5,
+                              shadows: const [
+                                Shadow(
+                                  color: Colors.black,
+                                  blurRadius: 4,
+                                  offset: Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+
+                          // Trennlinie
+                          Container(
+                            width: 160,
+                            height: 1.5,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.transparent,
+                                  _chestGlow.withOpacity(0.7),
+                                  Colors.transparent,
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildChestIcon() {
+    return SizedBox(
+      width: 110,
+      height: 90,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Äußerer Glanz-Schein
+          Container(
+            width: 110,
+            height: 90,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: _chestGlow.withOpacity(0.35 * _shineCtrl.value),
+                  blurRadius: 40,
+                  spreadRadius: 10,
+                ),
+              ],
+            ),
+          ),
+          // Rotierender Glanz-Strahl
+          Transform.rotate(
+            angle: _shineRotation.value,
+            child: CustomPaint(
+              size: const Size(100, 100),
+              painter: _ShinePainter(
+                progress: _shineCtrl.value,
+                color: _chestGlow,
+              ),
+            ),
+          ),
+          // Kiste selbst (CustomPainter)
+          CustomPaint(
+            size: const Size(80, 64),
+            painter: _ChestPainter(
+              bodyColor: _chestColor,
+              lidColor: _lidColor,
+              glowColor: _chestGlow,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Kiste Painter ────────────────────────────────────────────────────────────
+
+class _ChestPainter extends CustomPainter {
+  final Color bodyColor;
+  final Color lidColor;
+  final Color glowColor;
+
+  _ChestPainter({
+    required this.bodyColor,
+    required this.lidColor,
+    required this.glowColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // ── Glüh-Schatten ─────────────────────────────────────────────────────
+    final glowPaint = Paint()
+      ..color = glowColor.withOpacity(0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(4, h * 0.35, w - 8, h * 0.65),
+        const Radius.circular(6),
+      ),
+      glowPaint,
+    );
+
+    // ── Körper ────────────────────────────────────────────────────────────
+    final bodyPaint = Paint()..color = bodyColor;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, h * 0.38, w, h * 0.62),
+        const Radius.circular(5),
+      ),
+      bodyPaint,
+    );
+
+    // Körper-Highlight oben
+    final hlPaint = Paint()
+      ..color = Colors.white.withOpacity(0.18)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+    canvas.drawRect(Rect.fromLTWH(6, h * 0.40, w - 12, h * 0.12), hlPaint);
+
+    // Körper-Schatten unten
+    final shadowPaint = Paint()..color = Colors.black.withOpacity(0.25);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, h * 0.80, w, h * 0.20),
+        const Radius.circular(5),
+      ),
+      shadowPaint,
+    );
+
+    // ── Deckel ────────────────────────────────────────────────────────────
+    final lidPath = Path()
+      ..moveTo(0, h * 0.40)
+      ..lineTo(w, h * 0.40)
+      ..lineTo(w, h * 0.20)
+      ..quadraticBezierTo(w / 2, -h * 0.02, 0, h * 0.20)
+      ..close();
+
+    final lidPaint = Paint()..color = lidColor;
+    canvas.drawPath(lidPath, lidPaint);
+
+    // Deckel-Highlight
+    final lidHlPaint = Paint()
+      ..color = Colors.white.withOpacity(0.22)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+    final lidHlPath = Path()
+      ..moveTo(w * 0.1, h * 0.28)
+      ..lineTo(w * 0.9, h * 0.28)
+      ..lineTo(w * 0.9, h * 0.20)
+      ..quadraticBezierTo(w / 2, h * 0.06, w * 0.1, h * 0.20)
+      ..close();
+    canvas.drawPath(lidHlPath, lidHlPaint);
+
+    // ── Band / Riegel horizontal ──────────────────────────────────────────
+    final bandPaint = Paint()..color = const Color(0xFF8B5E00);
+    canvas.drawRect(Rect.fromLTWH(0, h * 0.36, w, h * 0.08), bandPaint);
+
+    // ── Schloss ───────────────────────────────────────────────────────────
+    final lockBodyPaint = Paint()..color = const Color(0xFFFFE066);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w / 2 - 7, h * 0.35, 14, 12),
+        const Radius.circular(3),
+      ),
+      lockBodyPaint,
+    );
+
+    // Schloss-Bügel
+    final lockBowPaint = Paint()
+      ..color = const Color(0xFFFFE066)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromLTWH(w / 2 - 5, h * 0.22, 10, 16),
+      pi,
+      pi,
+      false,
+      lockBowPaint,
+    );
+
+    // Schloss-Glanz
+    final lockGlowPaint = Paint()
+      ..color = glowColor.withOpacity(0.6)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w / 2 - 7, h * 0.35, 14, 12),
+        const Radius.circular(3),
+      ),
+      lockGlowPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ChestPainter old) => false;
+}
+
+// ─── Glanz-Strahl Painter ─────────────────────────────────────────────────────
+
+class _ShinePainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  _ShinePainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0) return;
+    final center = Offset(size.width / 2, size.height / 2);
+    final fade = (sin(progress * pi)).clamp(0.0, 1.0);
+
+    const rayCount = 8;
+    final paint = Paint()
+      ..color = color.withOpacity(0.55 * fade)
+      ..strokeWidth = 2
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+
+    for (int i = 0; i < rayCount; i++) {
+      final angle = (i / rayCount) * 2 * pi;
+      final innerR = 42.0;
+      final outerR = 48.0 + (i % 2 == 0 ? 10.0 : 0.0);
+      canvas.drawLine(
+        Offset(
+          center.dx + cos(angle) * innerR,
+          center.dy + sin(angle) * innerR,
+        ),
+        Offset(
+          center.dx + cos(angle) * outerR,
+          center.dy + sin(angle) * outerR,
+        ),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ShinePainter old) => old.progress != progress;
+}
+
+// ─── Schimmer-Partikel Modell ─────────────────────────────────────────────────
+
+class _SparkParticle {
+  final double angle;
+  final double speed;
+  final double size;
+  final double opacity;
+
+  _SparkParticle({required Random random})
+    : angle = random.nextDouble() * 2 * pi,
+      speed = 0.3 + random.nextDouble() * 0.5,
+      size = 1.5 + random.nextDouble() * 3.0,
+      opacity = 0.5 + random.nextDouble() * 0.5;
+}
+
+// ─── Schimmer-Partikel Painter ────────────────────────────────────────────────
+
+class _SparkPainter extends CustomPainter {
+  final List<_SparkParticle> sparks;
+  final double progress;
+  final double centerX;
+  final double centerY;
+  final Color color;
+
+  _SparkPainter({
+    required this.sparks,
+    required this.progress,
+    required this.centerX,
+    required this.centerY,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0) return;
+    final center = Offset(centerX, centerY);
+    final maxDist = size.shortestSide * 0.38;
+
+    for (final p in sparks) {
+      final dist = maxDist * p.speed * progress;
+      final fade = (1.0 - progress).clamp(0.0, 1.0);
+      final px = center.dx + cos(p.angle) * dist;
+      final py = center.dy + sin(p.angle) * dist;
+
+      // Gold-Partikel
+      canvas.drawCircle(
+        Offset(px, py),
+        p.size * (1.0 - progress * 0.5),
+        Paint()..color = color.withOpacity(p.opacity * fade),
+      );
+      // Weißer Kern
+      canvas.drawCircle(
+        Offset(px, py),
+        p.size * 0.35 * (1.0 - progress * 0.5),
+        Paint()..color = Colors.white.withOpacity(p.opacity * fade * 0.7),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SparkPainter old) => old.progress != progress;
 }
 
 // ─── Partikel Modell ──────────────────────────────────────────────────────────
@@ -418,12 +922,10 @@ class _ParticlePainter extends CustomPainter {
       final px = center.dx + cos(p.angle) * dist;
       final py = center.dy + sin(p.angle) * dist;
 
-      // Grüner Partikel
       final paint = Paint()
         ..color = const Color(0xFF44FF99).withOpacity(p.opacity * fade);
       canvas.drawCircle(Offset(px, py), p.size * (1.0 - progress * 0.5), paint);
 
-      // Weißer Kern
       final corePaint = Paint()
         ..color = Colors.white.withOpacity(p.opacity * fade * 0.6);
       canvas.drawCircle(
@@ -458,7 +960,6 @@ class _BeatRingPainter extends CustomPainter {
     final center = Offset(centerX, centerY);
     final maxRadius = size.shortestSide * 0.5;
 
-    // ── Ring 1 ────────────────────────────────────────────────────────────
     final r1 = maxRadius * progress;
     final fade1 = (1.0 - progress).clamp(0.0, 1.0);
 
@@ -475,12 +976,10 @@ class _BeatRingPainter extends CustomPainter {
       ..strokeWidth = 2.5;
     canvas.drawCircle(center, r1, ringPaint1);
 
-    // ── Ring 2 (verzögert) ────────────────────────────────────────────────
     final p2 = (progress - 0.15).clamp(0.0, 1.0);
     if (p2 > 0) {
       final r2 = maxRadius * p2;
       final fade2 = (1.0 - p2).clamp(0.0, 1.0);
-
       final ringPaint2 = Paint()
         ..color = Colors.white.withOpacity(0.4 * fade2)
         ..style = PaintingStyle.stroke
@@ -488,12 +987,10 @@ class _BeatRingPainter extends CustomPainter {
       canvas.drawCircle(center, r2, ringPaint2);
     }
 
-    // ── Ring 3 (noch mehr verzögert) ──────────────────────────────────────
     final p3 = (progress - 0.3).clamp(0.0, 1.0);
     if (p3 > 0) {
       final r3 = maxRadius * p3;
       final fade3 = (1.0 - p3).clamp(0.0, 1.0);
-
       final ringPaint3 = Paint()
         ..color = const Color(0xFF44FF99).withOpacity(0.3 * fade3)
         ..style = PaintingStyle.stroke
@@ -501,7 +998,6 @@ class _BeatRingPainter extends CustomPainter {
       canvas.drawCircle(center, r3, ringPaint3);
     }
 
-    // ── Strahlen ──────────────────────────────────────────────────────────
     if (progress < 0.6) {
       const rayCount = 16;
       final rayFade = (1.0 - progress / 0.6).clamp(0.0, 1.0);
@@ -850,22 +1346,23 @@ class _LevelUpPainter extends CustomPainter {
       final angle = (i / rayCount) * 2 * pi;
       final innerR = radius * 0.85;
       final outerR = radius + 20 + (i % 3 == 0 ? 16.0 : 0.0);
-      final startX = center.dx + cos(angle) * innerR;
-      final startY = center.dy + sin(angle) * innerR;
-      final endX = center.dx + cos(angle) * outerR;
-      final endY = center.dy + sin(angle) * outerR;
-      canvas.drawLine(Offset(startX, startY), Offset(endX, endY), rayPaint);
+      canvas.drawLine(
+        Offset(centerX + cos(angle) * innerR, centerY + sin(angle) * innerR),
+        Offset(centerX + cos(angle) * outerR, centerY + sin(angle) * outerR),
+        rayPaint,
+      );
     }
 
     const particleCount = 24;
     final particlePaint = Paint()..color = color.withOpacity(0.8);
-
     for (int i = 0; i < particleCount; i++) {
       final angle = (i / particleCount) * 2 * pi;
       final r = radius + (i % 2 == 0 ? 6.0 : -6.0);
-      final px = center.dx + cos(angle) * r;
-      final py = center.dy + sin(angle) * r;
-      canvas.drawCircle(Offset(px, py), i % 3 == 0 ? 3.0 : 1.8, particlePaint);
+      canvas.drawCircle(
+        Offset(centerX + cos(angle) * r, centerY + sin(angle) * r),
+        i % 3 == 0 ? 3.0 : 1.8,
+        particlePaint,
+      );
     }
   }
 

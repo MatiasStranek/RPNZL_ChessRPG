@@ -1,7 +1,7 @@
 // animations/reward_overlay_controller.dart
 import 'package:flutter/material.dart';
 
-enum RewardEventType { gold, item, levelUp, beatComplete }
+enum RewardEventType { gold, item, levelUp, beatComplete, chestEarned }
 
 class RewardEvent {
   final RewardEventType type;
@@ -10,7 +10,7 @@ class RewardEvent {
   final int? newLevel;
   final String? beatLevelName;
   final Offset? worldPosition;
-  final bool repeated; // ← NEU: war das Level bereits abgeschlossen?
+  final bool repeated;
 
   const RewardEvent({
     required this.type,
@@ -19,7 +19,7 @@ class RewardEvent {
     this.newLevel,
     this.beatLevelName,
     this.worldPosition,
-    this.repeated = false, // ← NEU
+    this.repeated = false,
   });
 }
 
@@ -52,13 +52,20 @@ class RewardOverlayController extends ChangeNotifier {
   }
 
   void fireBeatComplete(String levelName, {bool repeated = false}) {
-    // ← NEU: repeated Parameter
     _queue.add(
       RewardEvent(
         type: RewardEventType.beatComplete,
         beatLevelName: levelName,
-        repeated: repeated, // ← NEU
+        repeated: repeated,
       ),
+    );
+    notifyListeners();
+  }
+
+  /// Feuert die Kisten-Belohnungsanimation – nur beim ersten Abschluss aufrufen.
+  void fireChestEarned(String levelName) {
+    _queue.add(
+      RewardEvent(type: RewardEventType.chestEarned, beatLevelName: levelName),
     );
     notifyListeners();
   }

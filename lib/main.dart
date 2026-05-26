@@ -19,6 +19,9 @@ import 'skills/active_skill_service.dart';
 import 'beat/beat_level_service.dart';
 import 'beat/beat_exit_button.dart';
 import 'beat/beat_timer/beat_timer_display.dart';
+import 'chest/chest_service.dart';
+import 'chest/chest_model.dart';
+import 'chest/chest_popup.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +44,9 @@ void main() async {
   final beatLevelService = BeatLevelService();
   await beatLevelService.init();
 
+  final chestService = ChestService();
+  await chestService.init();
+
   final effectHandler = ItemEffectHandler(energyService: energyService);
 
   final board = await BoardLoader.loadMap('map_board_1');
@@ -52,6 +58,7 @@ void main() async {
     activeSkillService: activeSkillService,
     skillService: skillService,
     beatLevelService: beatLevelService,
+    chestService: chestService,
   );
 
   final hudVisible = ValueNotifier<bool>(true);
@@ -79,9 +86,6 @@ void main() async {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // ── Lücke wenn Beat-Timer aktiv (Timer ist im
-                      //    BeatTimerDisplay-Wrapper oben links eingebettet,
-                      //    hier reservieren wir nur den Platz) ──────────────
                       ListenableBuilder(
                         listenable: game.beatTimerController,
                         builder: (context, _) => AnimatedSize(
@@ -173,7 +177,6 @@ void main() async {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          // ── NEU: Lücke wenn Beat-Timer aktiv ────────────
                           ListenableBuilder(
                             listenable: game.beatTimerController,
                             builder: (context, _) => AnimatedSize(
@@ -290,6 +293,102 @@ void main() async {
                                   onTap: () => game.setZoomFar(),
                                 ),
                               ],
+                            ),
+
+                            const SizedBox(height: 6),
+
+                            // ── Kisten Button ─────────────────────────────
+                            Builder(
+                              builder: (context) => GestureDetector(
+                                onTap: () => ChestPopup.show(
+                                  context,
+                                  chestService: chestService,
+                                ),
+                                child: ValueListenableBuilder<List<ChestModel>>(
+                                  valueListenable: chestService.chestsNotifier,
+                                  builder: (context, chests, _) {
+                                    final hasChests = chests.isNotEmpty;
+                                    return Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        Container(
+                                          width: 34,
+                                          height: 34,
+                                          decoration: BoxDecoration(
+                                            color: hasChests
+                                                ? const Color(
+                                                    0xFF44FF99,
+                                                  ).withOpacity(0.18)
+                                                : Colors.white.withOpacity(
+                                                    0.15,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: hasChests
+                                                  ? const Color(
+                                                      0xFF44FF99,
+                                                    ).withOpacity(0.6)
+                                                  : Colors.white24,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons.inventory_2_rounded,
+                                            color: hasChests
+                                                ? const Color(0xFF44FF99)
+                                                : Colors.white70,
+                                            size: 18,
+                                          ),
+                                        ),
+                                        if (hasChests)
+                                          Positioned(
+                                            top: -4,
+                                            right: -4,
+                                            child: Container(
+                                              constraints: const BoxConstraints(
+                                                minWidth: 16,
+                                                minHeight: 16,
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 3,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF44FF99),
+                                                shape: chests.length > 9
+                                                    ? BoxShape.rectangle
+                                                    : BoxShape.circle,
+                                                borderRadius: chests.length > 9
+                                                    ? BorderRadius.circular(8)
+                                                    : null,
+                                                border: Border.all(
+                                                  color: const Color(
+                                                    0xFF1A1A1A,
+                                                  ),
+                                                  width: 1.5,
+                                                ),
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  chests.length > 99
+                                                      ? '99+'
+                                                      : '${chests.length}',
+                                                  style: const TextStyle(
+                                                    color: Color(0xFF1A1A1A),
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w900,
+                                                    height: 1.0,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
                             ),
                           ],
                         ],

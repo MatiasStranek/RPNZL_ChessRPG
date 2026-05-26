@@ -13,6 +13,7 @@ import '../../beat/beat_level_service.dart';
 import '../../beat/beat_level_config.dart';
 import '../../beat/beat_world_session.dart';
 import '../../beat/beat_timer/beat_timer_controller.dart';
+import '../../chest/chest_service.dart';
 import '../../portal/portal_service.dart';
 import '../../enemy/base/enemy_component.dart';
 import '../piece_component.dart';
@@ -29,6 +30,7 @@ mixin GameStateMixin on FlameGame {
   late ActiveSkillService activeSkillService;
   late SkillService skillService;
   late BeatLevelService beatLevelService;
+  late ChestService chestService;
 
   // ── Game-State ────────────────────────────────────────────────────────────
   late BoardModel board;
@@ -63,7 +65,6 @@ mixin GameStateMixin on FlameGame {
   late BeatTimerController beatTimerController;
 
   // ── Abstrakte Methoden – werden in den jeweiligen Mixins implementiert ────
-  // Jedes Mixin kann diese aufrufen ohne on-Abhängigkeit zum anderen Mixin.
   Future<void> initBoard(BoardModel newBoard, {String? beatMapName});
   Future<BoardModel> loadBoardByRef(String ref);
   void addEnemy(PieceModel piece);

@@ -14,6 +14,7 @@ import '../skills/active_skill_service.dart';
 import '../skills/skill_service.dart';
 import '../beat/beat_level_service.dart';
 import '../beat/beat_timer/beat_timer_controller.dart';
+import '../chest/chest_service.dart';
 import 'cell_component.dart';
 import 'mixins/game_state_mixin.dart';
 import 'mixins/game_helpers_mixin.dart';
@@ -39,6 +40,7 @@ class ChessGame extends FlameGame
     required ActiveSkillService activeSkillService,
     required SkillService skillService,
     required BeatLevelService beatLevelService,
+    required ChestService chestService,
     required BoardModel board,
   }) {
     this.energyService = energyService;
@@ -47,6 +49,7 @@ class ChessGame extends FlameGame
     this.activeSkillService = activeSkillService;
     this.skillService = skillService;
     this.beatLevelService = beatLevelService;
+    this.chestService = chestService;
     this.board = board;
     beatTimerController = BeatTimerController();
   }
