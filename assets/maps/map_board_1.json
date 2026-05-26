@@ -28,7 +28,7 @@
       "type": "beat",
       "id": "beat_portal_1",
       "x": 8, "y": 2,
-      "beatMapName": "beat_map_1",
+      "beatMapName": "beat_maps_level_1",
       "requiredLevel": 5
     }
   ]

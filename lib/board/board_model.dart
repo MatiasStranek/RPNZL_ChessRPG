@@ -3,7 +3,7 @@ import 'package:chessrpg/piece/piece_model.dart';
 import 'spawn_zone.dart';
 import '../portal/portal_model.dart';
 
-enum CellType { solid, hole, portal, beat }
+enum CellType { solid, hole, portal, beat, levelExit }
 
 class BoardModel {
   final int width;

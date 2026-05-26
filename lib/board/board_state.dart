@@ -64,11 +64,13 @@ class BoardState extends ChangeNotifier {
     ).any((m) => m[0] == x && m[1] == y);
   }
 
-  // ── Hilfsmethode: ist eine Zelle ein Portal-Typ? ──────────────────────────
-  // Gilt für world- UND beat-Portale – Gegner dürfen auf keines davon
+  // ── Hilfsmethode: ist eine Zelle für Gegner gesperrt? ─────────────────────
+  // Gilt für world-, beat- UND exit-Portale
   bool _isPortalCell(int x, int y) {
     final cell = board.cells[y][x];
-    return cell == CellType.portal || cell == CellType.beat;
+    return cell == CellType.portal ||
+        cell == CellType.beat ||
+        cell == CellType.levelExit; // ← NEU: Exit-Portal gesperrt
   }
 
   // ── Bewegung ──────────────────────────────────────────────────────────────
@@ -237,7 +239,7 @@ class BoardState extends ChangeNotifier {
         if (nx < 0 || nx >= board.width || ny < 0 || ny >= board.height)
           continue;
         if (board.cells[ny][nx] == CellType.hole) continue;
-        if (_isPortalCell(nx, ny)) continue; // ← world & beat gesperrt
+        if (_isPortalCell(nx, ny)) continue; // ← world, beat & exit gesperrt
 
         if (_enemies().any(
           (e) =>
@@ -307,7 +309,7 @@ class BoardState extends ChangeNotifier {
     for (int y = zone.top; y <= zone.bottom; y++) {
       for (int x = zone.left; x <= zone.right; x++) {
         if (board.cells[y][x] == CellType.hole) continue;
-        if (_isPortalCell(x, y)) continue; // ← world & beat kein Spawn
+        if (_isPortalCell(x, y)) continue; // ← world, beat & exit kein Spawn
         if (board.pieces.any((p) => p.x == x && p.y == y)) continue;
         candidates.add([x, y]);
       }

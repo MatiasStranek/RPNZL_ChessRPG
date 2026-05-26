@@ -2,6 +2,7 @@
 import 'portal_model.dart';
 import 'portal_types/world_portal.dart';
 import 'portal_types/beat_portal.dart';
+import 'portal_types/level_exit_portal.dart';
 
 class PortalService {
   final List<PortalModel> portals;
@@ -23,7 +24,12 @@ class PortalService {
     return null;
   }
 
-  /// Gibt das WorldPortal mit dieser ID zurück
+  LevelExitPortal? levelExitPortalAt(int x, int y) {
+    final portal = portalAt(x, y);
+    if (portal is LevelExitPortal) return portal;
+    return null;
+  }
+
   WorldPortal? portalById(String id) {
     return portals
         .whereType<WorldPortal>()

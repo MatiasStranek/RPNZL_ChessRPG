@@ -20,6 +20,12 @@ import '../skills/active_skill_service.dart';
 import '../skills/skill_service.dart';
 import '../portal/portal_service.dart';
 import '../portal/portal_types/world_portal.dart';
+import '../portal/portal_types/beat_portal.dart';
+import '../portal/portal_types/level_exit_portal.dart';
+import '../beat/beat_level_service.dart';
+import '../beat/beat_popup.dart';
+import '../beat/beat_world_session.dart';
+import '../beat/beat_map_loader.dart';
 import 'cell_component.dart';
 import 'piece_component.dart';
 import '../enemy/base/enemy_component.dart';
@@ -33,13 +39,17 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
   final PlayerService playerService;
   final ActiveSkillService activeSkillService;
   final SkillService skillService;
+  final BeatLevelService beatLevelService;
 
   late BoardState state;
   late PieceComponent pieceComponent;
   late PortalService portalService;
 
-  // ─── Aktueller Map-Name (wird beim Laden gesetzt) ─────────────────────────
   String _currentMapName = 'map_board_1';
+
+  BeatWorldSession? _beatSession;
+
+  void Function(bool active)? onBeatSessionChanged;
 
   Vector2 cameraShakeOffset = Vector2.zero();
   bool _gameOver = false;
@@ -59,6 +69,7 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     required this.playerService,
     required this.activeSkillService,
     required this.skillService,
+    required this.beatLevelService,
   });
 
   @override
@@ -104,7 +115,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     _lastKnownCrazyLevel = playerService.crazyLevel;
     energyService.energyNotifier.addListener(_onEnergyChanged);
 
-    // ─── Immer gespeicherte Map & Position laden ───────────────────────────
     final savedMap = playerService.savedMap;
     final savedX = playerService.savedPosX;
     final savedY = playerService.savedPosY;
@@ -119,7 +129,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
       _currentMapName = savedMap;
       await _initBoard(savedBoard);
     } catch (_) {
-      // Fallback: Standard-Board falls gespeicherte Map nicht ladbar
       playerService.resetPosition();
       _currentMapName = 'map_board_1';
       await _initBoard(board);
@@ -170,7 +179,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     )) {
       _addEnemy(enemy);
     }
-    // Kein savePosition hier – nur beim echten Zug & Portal-Wechsel speichern
   }
 
   // ── State-Callbacks ───────────────────────────────────────────────────────
@@ -268,9 +276,7 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
       state.movePiece(gridX, gridY);
       pieceComponent.moveTo(player.x, player.y);
 
-      // ─── Position nach jedem Drag-Zug speichern ───────────────────────
-      playerService.savePosition(player.x, player.y, _currentMapName);
-
+      _savePositionIfOutside(player.x, player.y);
       _checkPortal(player.x, player.y);
 
       Future.delayed(const Duration(milliseconds: 16), () {
@@ -284,18 +290,94 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     };
   }
 
-  // ── Portal-Logik ──────────────────────────────────────────────────────────
-  void _checkPortal(int x, int y) {
-    final portal = portalService.worldPortalAt(x, y);
-    if (portal == null) return;
-    _travelToMap(portal);
+  // ── Position nur auf Außen-Maps speichern ─────────────────────────────────
+  void _savePositionIfOutside(int x, int y) {
+    if (_beatSession == null) {
+      playerService.savePosition(x, y, _currentMapName);
+    }
   }
 
+  // ── Portal-Logik ──────────────────────────────────────────────────────────
+  void _checkPortal(int x, int y) {
+    // Level Exit zuerst prüfen
+    final exitPortal = portalService.levelExitPortalAt(x, y);
+    if (exitPortal != null) {
+      _completeBeatLevel();
+      return;
+    }
+
+    final worldPortal = portalService.worldPortalAt(x, y);
+    if (worldPortal != null) {
+      _travelToMap(worldPortal);
+      return;
+    }
+
+    if (_beatSession == null) {
+      final beatPortal = portalService.beatPortalAt(x, y);
+      if (beatPortal != null) {
+        _showBeatPortalPopup(beatPortal);
+      }
+    }
+  }
+
+  // ── Level abschließen ─────────────────────────────────────────────────────
+  Future<void> _completeBeatLevel() async {
+    final session = _beatSession;
+    if (session == null) return;
+
+    _inputLocked = true;
+
+    // ── VOR markCompleted prüfen ob bereits abgeschlossen ────────────────
+    final wasAlreadyCompleted = beatLevelService.isCompleted(
+      session.beatWorldId,
+    );
+
+    await beatLevelService.markCompleted(session.beatWorldId);
+
+    // ── Beat-Complete Animation feuern ───────────────────────────────────
+    RewardOverlayController.instance.fireBeatComplete(
+      session.beatWorldId,
+      repeated: wasAlreadyCompleted, // ← "Erneut Abgeschlossen" wenn true
+    );
+
+    _beatSession = null;
+    onBeatSessionChanged?.call(false);
+
+    try {
+      final newBoard = await BoardLoader.loadMap(session.returnMapName);
+      final playerPiece = newBoard.pieces.firstWhere(
+        (p) => p.team == PieceTeam.player,
+      );
+      playerPiece.x = session.returnX;
+      playerPiece.y = session.returnY;
+
+      _currentMapName = session.returnMapName;
+      playerService.savePosition(
+        session.returnX,
+        session.returnY,
+        _currentMapName,
+      );
+
+      world.removeAll(world.children.toList());
+      _enemyComponents.clear();
+
+      await _initBoard(newBoard);
+    } catch (_) {
+      _currentMapName = 'map_board_1';
+      final fallback = await BoardLoader.loadMap('map_board_1');
+      world.removeAll(world.children.toList());
+      _enemyComponents.clear();
+      await _initBoard(fallback);
+    } finally {
+      _inputLocked = false;
+    }
+  }
+
+  // ── World Portal: Map-Wechsel ─────────────────────────────────────────────
   Future<void> _travelToMap(WorldPortal portal) async {
     _inputLocked = true;
 
-    final newBoard = await BoardLoader.loadMap(portal.targetMap);
-
+    final newBoard = await _loadBoardByRef(portal.targetMap);
     final targetPortalService = PortalService(portals: newBoard.portals);
     final linkedPortal = targetPortalService.portalById(portal.linkedPortalId);
 
@@ -308,9 +390,11 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     playerPiece.x = spawnX;
     playerPiece.y = spawnY;
 
-    // ─── Neue Map & Spawn-Position speichern ──────────────────────────────
     _currentMapName = portal.targetMap;
-    playerService.savePosition(spawnX, spawnY, _currentMapName);
+
+    if (_beatSession == null) {
+      playerService.savePosition(spawnX, spawnY, _currentMapName);
+    }
 
     world.removeAll(world.children.toList());
     _enemyComponents.clear();
@@ -319,30 +403,133 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     _inputLocked = false;
   }
 
-  // ── Teleport zur gespeicherten Position (nach Reset) ──────────────────────
-  /// Wird vom CheatMenu nach einem kompletten Reset aufgerufen.
-  /// Liest die Startposition direkt aus der Map-JSON (Player-Piece),
-  /// damit die Position mit der tatsächlichen Spawn-Position übereinstimmt.
-  Future<void> teleportToSavedPosition() async {
+  // ── Map laden anhand Referenz-String ──────────────────────────────────────
+  Future<BoardModel> _loadBoardByRef(String ref) {
+    final beatRef = BeatMapLoader.parseRef(ref);
+    if (beatRef != null) {
+      return BeatMapLoader.load(level: beatRef.level, map: beatRef.map);
+    }
+    return BoardLoader.loadMap(ref);
+  }
+
+  // ── Beat Portal PopUp ─────────────────────────────────────────────────────
+  Future<void> _showBeatPortalPopup(BeatPortal portal) async {
     _inputLocked = true;
 
-    // Nach Reset enthält savedMap die Default-Map ('map_board_1').
-    // savedPosX/Y wurden durch resetPosition() gelöscht → werden NICHT
-    // verwendet. Die echte Startposition kommt aus der Map-JSON.
+    final context = buildContext;
+    if (context == null) {
+      _inputLocked = false;
+      return;
+    }
+
+    final level = beatLevelService.getLevel(
+      id: portal.beatMapName,
+      requiredLevel: portal.requiredLevel,
+    );
+
+    final entered = await BeatPopup.show(
+      context: context,
+      level: level,
+      playerLevel: playerService.level,
+    );
+
+    if (!entered) {
+      _inputLocked = false;
+      return;
+    }
+
+    // ── BeatWorld betreten ────────────────────────────────────────────────
+    final player = board.pieces.firstWhere((p) => p.team == PieceTeam.player);
+
+    _beatSession = BeatWorldSession(
+      beatWorldId: portal.beatMapName,
+      returnMapName: _currentMapName,
+      returnX: player.x,
+      returnY: player.y,
+    );
+
+    onBeatSessionChanged?.call(true);
+
+    final entryBoard = await BeatMapLoader.load(
+      level: _beatSession!.beatWorldId,
+      map: portal.spawnMap,
+    );
+
+    final playerPiece = entryBoard.pieces.firstWhere(
+      (p) => p.team == PieceTeam.player,
+    );
+    playerPiece.x = portal.spawnX;
+    playerPiece.y = portal.spawnY;
+
+    _currentMapName = BeatMapLoader.mapRef(
+      _beatSession!.beatWorldId,
+      portal.spawnMap,
+    );
+
+    world.removeAll(world.children.toList());
+    _enemyComponents.clear();
+
+    await _initBoard(entryBoard);
+    _inputLocked = false;
+  }
+
+  // ── BeatWorld verlassen (ohne Erfolg) ────────────────────────────────────
+  Future<void> exitBeatWorld() async {
+    final session = _beatSession;
+    if (session == null) return;
+
+    _inputLocked = true;
+    _beatSession = null;
+    onBeatSessionChanged?.call(false);
+
+    try {
+      final newBoard = await BoardLoader.loadMap(session.returnMapName);
+      final playerPiece = newBoard.pieces.firstWhere(
+        (p) => p.team == PieceTeam.player,
+      );
+
+      playerPiece.x = session.returnX;
+      playerPiece.y = session.returnY;
+
+      _currentMapName = session.returnMapName;
+      playerService.savePosition(
+        session.returnX,
+        session.returnY,
+        _currentMapName,
+      );
+
+      world.removeAll(world.children.toList());
+      _enemyComponents.clear();
+
+      await _initBoard(newBoard);
+    } catch (_) {
+      _currentMapName = 'map_board_1';
+      final fallback = await BoardLoader.loadMap('map_board_1');
+      world.removeAll(world.children.toList());
+      _enemyComponents.clear();
+      await _initBoard(fallback);
+    } finally {
+      _inputLocked = false;
+    }
+  }
+
+  // ── Teleport zur gespeicherten Position (Cheat-Reset) ────────────────────
+  Future<void> teleportToSavedPosition() async {
+    if (_beatSession != null) {
+      _beatSession = null;
+      onBeatSessionChanged?.call(false);
+    }
+
+    _inputLocked = true;
     final mapName = playerService.savedMap;
 
     try {
       final newBoard = await BoardLoader.loadMap(mapName);
-
-      // ✅ Startposition direkt aus der JSON lesen – korrekte Mitte/Spawn
       final playerPiece = newBoard.pieces.firstWhere(
         (p) => p.team == PieceTeam.player,
       );
-      // playerPiece.x / .y sind bereits die JSON-Werte → NICHT überschreiben
 
       _currentMapName = mapName;
-
-      // Gespeicherte Position in Hive auf die echte JSON-Startposition setzen
       playerService.savePosition(playerPiece.x, playerPiece.y, mapName);
 
       world.removeAll(world.children.toList());
@@ -350,7 +537,6 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
 
       await _initBoard(newBoard);
     } catch (_) {
-      // Fallback: Startmap hart laden
       _currentMapName = 'map_board_1';
       final fallback = await BoardLoader.loadMap('map_board_1');
       final playerPiece = fallback.pieces.firstWhere(
@@ -440,9 +626,7 @@ class ChessGame extends FlameGame with TapCallbacks, DragCallbacks {
     state.movePiece(gridX, gridY);
     pieceComponent.moveTo(player.x, player.y);
 
-    // ─── Position nach jedem Tap-Zug speichern ────────────────────────────
-    playerService.savePosition(player.x, player.y, _currentMapName);
-
+    _savePositionIfOutside(player.x, player.y);
     _checkPortal(player.x, player.y);
 
     Future.delayed(const Duration(milliseconds: 16), () {

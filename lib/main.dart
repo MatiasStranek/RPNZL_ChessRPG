@@ -16,6 +16,8 @@ import 'animations/reward_overlay.dart';
 import 'skills/skill_service.dart';
 import 'skills/skill_button.dart';
 import 'skills/active_skill_service.dart';
+import 'beat/beat_level_service.dart';
+import 'beat/beat_exit_button.dart'; // ← NEU
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,6 +37,9 @@ void main() async {
 
   final activeSkillService = ActiveSkillService();
 
+  final beatLevelService = BeatLevelService();
+  await beatLevelService.init();
+
   final effectHandler = ItemEffectHandler(energyService: energyService);
 
   final board = await BoardLoader.loadMap('map_board_1');
@@ -45,9 +50,15 @@ void main() async {
     playerService: playerService,
     activeSkillService: activeSkillService,
     skillService: skillService,
+    beatLevelService: beatLevelService,
   );
 
   final hudVisible = ValueNotifier<bool>(true);
+
+  // ── Beat-Session Notifier ────────────────────────────────────────────────
+  // Wird true wenn der Spieler eine BeatWorld betritt → zeigt Exit-Button
+  final beatSessionActive = ValueNotifier<bool>(false);
+  game.onBeatSessionChanged = (active) => beatSessionActive.value = active;
 
   runApp(
     MaterialApp(
@@ -107,6 +118,15 @@ void main() async {
             // ── Reward Animationen ─────────────────────────────────────
             const RewardOverlay(),
 
+            // ── Beat Exit Button ───────────────────────────────────────
+            // Nur sichtbar wenn Spieler in einer BeatWorld ist
+            ValueListenableBuilder<bool>(
+              valueListenable: beatSessionActive,
+              builder: (context, inBeatWorld, _) => inBeatWorld
+                  ? BeatExitButton(onExit: () => game.exitBeatWorld())
+                  : const SizedBox.shrink(),
+            ),
+
             // ── Oben rechts ────────────────────────────────────────────
             SafeArea(
               child: Align(
@@ -152,7 +172,7 @@ void main() async {
                                 playerService: playerService,
                                 inventoryService: inventoryService,
                                 skillService: skillService,
-                                // ── NEU: Spiel zur Startposition teleportieren ──
+                                beatLevelService: beatLevelService,
                                 onResetPosition: () =>
                                     game.teleportToSavedPosition(),
                               ),

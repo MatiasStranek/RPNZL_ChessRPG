@@ -6,6 +6,7 @@ import 'spawn_zone.dart';
 import 'package:chessrpg/piece/piece_model.dart';
 import '../portal/portal_types/world_portal.dart';
 import '../portal/portal_types/beat_portal.dart';
+import '../portal/portal_types/level_exit_portal.dart';
 
 class BoardLoader {
   static Future<BoardModel> loadMap(String mapName) async {
@@ -13,17 +14,18 @@ class BoardLoader {
       'assets/maps/$mapName.json',
     );
     final Map<String, dynamic> data = jsonDecode(json);
+    return parse(data);
+  }
 
+  static BoardModel parse(Map<String, dynamic> data) {
     final int width = data['width'];
     final int height = data['height'];
     final board = BoardModel.generate(width: width, height: height);
 
-    // Einzelne Holes
     for (final hole in (data['holes'] as List? ?? [])) {
       board.cells[hole['y']][hole['x']] = CellType.hole;
     }
 
-    // Hole-Zonen (Bereiche)
     for (final zone in (data['holeZones'] as List? ?? [])) {
       final x1 = zone['x1'] as int;
       final y1 = zone['y1'] as int;
@@ -37,13 +39,11 @@ class BoardLoader {
       }
     }
 
-    // Pieces
     for (final p in (data['pieces'] as List? ?? [])) {
       final team = PieceTeam.values.byName(p['team']);
       board.pieces.add(PieceModel(team: team, x: p['x'], y: p['y']));
     }
 
-    // Spawn-Zonen
     for (final z in (data['spawnZones'] as List? ?? [])) {
       board.spawnZones.add(
         SpawnZone(
@@ -57,7 +57,6 @@ class BoardLoader {
       );
     }
 
-    // Portale
     for (final p in (data['portals'] as List? ?? [])) {
       final type = p['type'] as String? ?? 'world';
       final px = p['x'] as int;
@@ -76,7 +75,7 @@ class BoardLoader {
               targetMap: p['targetMap'],
             ),
           );
-          board.cells[py][px] = CellType.portal; // ← lila World-Zelle
+          board.cells[py][px] = CellType.portal;
 
         case 'beat':
           board.portals.add(
@@ -86,9 +85,22 @@ class BoardLoader {
               id: p['id'],
               beatMapName: p['beatMapName'],
               requiredLevel: p['requiredLevel'] as int,
+              spawnMap: p['spawnMap'] as String? ?? 'beat_map_1',
+              spawnX: p['spawnX'] as int? ?? 1,
+              spawnY: p['spawnY'] as int? ?? 1,
             ),
           );
-          board.cells[py][px] = CellType.beat; // ← eigene Beat-Zelle
+          board.cells[py][px] = CellType.beat;
+
+        case 'levelExit':
+          board.portals.add(
+            LevelExitPortal(
+              x: px,
+              y: py,
+              id: p['id'] as String? ?? 'exit_${px}_$py',
+            ),
+          );
+          board.cells[py][px] = CellType.levelExit;
       }
     }
 

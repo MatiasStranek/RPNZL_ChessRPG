@@ -1,26 +1,28 @@
 // animations/reward_overlay_controller.dart
 import 'package:flutter/material.dart';
 
-/// Event-Typen die animiert werden können
-enum RewardEventType { gold, item, levelUp }
+enum RewardEventType { gold, item, levelUp, beatComplete }
 
 class RewardEvent {
   final RewardEventType type;
   final int? goldAmount;
   final String? itemName;
   final int? newLevel;
-  final Offset? worldPosition; // optionale Startposition
+  final String? beatLevelName;
+  final Offset? worldPosition;
+  final bool repeated; // ← NEU: war das Level bereits abgeschlossen?
 
   const RewardEvent({
     required this.type,
     this.goldAmount,
     this.itemName,
     this.newLevel,
+    this.beatLevelName,
     this.worldPosition,
+    this.repeated = false, // ← NEU
   });
 }
 
-/// Globaler Controller – ChessGame feuert Events, RewardOverlay lauscht
 class RewardOverlayController extends ChangeNotifier {
   static final RewardOverlayController instance = RewardOverlayController._();
   RewardOverlayController._();
@@ -46,6 +48,18 @@ class RewardOverlayController extends ChangeNotifier {
 
   void fireLevelUp(int newLevel) {
     _queue.add(RewardEvent(type: RewardEventType.levelUp, newLevel: newLevel));
+    notifyListeners();
+  }
+
+  void fireBeatComplete(String levelName, {bool repeated = false}) {
+    // ← NEU: repeated Parameter
+    _queue.add(
+      RewardEvent(
+        type: RewardEventType.beatComplete,
+        beatLevelName: levelName,
+        repeated: repeated, // ← NEU
+      ),
+    );
     notifyListeners();
   }
 

@@ -5,12 +5,14 @@ import '../energy/energy_service.dart';
 import '../player/player_service.dart';
 import '../inventory/inventory_service.dart';
 import '../skills/skill_service.dart';
+import '../beat/beat_level_service.dart'; // ← NEU
 
 class CheatMenuButton extends StatelessWidget {
   final EnergyService energyService;
   final PlayerService playerService;
   final InventoryService inventoryService;
   final SkillService skillService;
+  final BeatLevelService beatLevelService; // ← NEU
   final bool enabled;
 
   const CheatMenuButton({
@@ -19,6 +21,7 @@ class CheatMenuButton extends StatelessWidget {
     required this.playerService,
     required this.inventoryService,
     required this.skillService,
+    required this.beatLevelService, // ← NEU
     this.enabled = true,
   });
 
@@ -31,8 +34,7 @@ class CheatMenuDialog extends StatelessWidget {
   final PlayerService playerService;
   final InventoryService inventoryService;
   final SkillService skillService;
-
-  // ─── NEU: Callback um das Spiel zur Startposition zu teleportieren ────────
+  final BeatLevelService beatLevelService; // ← NEU
   final VoidCallback onResetPosition;
 
   const CheatMenuDialog({
@@ -41,6 +43,7 @@ class CheatMenuDialog extends StatelessWidget {
     required this.playerService,
     required this.inventoryService,
     required this.skillService,
+    required this.beatLevelService, // ← NEU
     required this.onResetPosition,
   });
 
@@ -51,8 +54,8 @@ class CheatMenuDialog extends StatelessWidget {
       context,
       title: '⚠️ Alle Daten löschen?',
       message:
-          'Energy, Gold, EXP, Level, Skills, Inventar und gespeicherte '
-          'Position werden komplett zurückgesetzt.',
+          'Energy, Gold, EXP, Level, Skills, Inventar, Position und '
+          'alle Beat-Fortschritte werden komplett zurückgesetzt.',
     );
     if (!confirm) return;
 
@@ -64,12 +67,11 @@ class CheatMenuDialog extends StatelessWidget {
     playerService.resetGold();
     playerService.resetExp();
     playerService.cheatResetSkillLevels();
-    // ─── Position in Hive zurücksetzen ────────────────────────────────────
     playerService.resetPosition();
     inventoryService.clearAll();
     skillService.cheatResetAll();
+    await beatLevelService.resetAll(); // ← NEU
 
-    // ─── Spiel live zur Startposition teleportieren ───────────────────────
     onResetPosition();
 
     if (context.mounted) _showSnack(context, '🗑️ Alle Daten gelöscht');
@@ -156,6 +158,13 @@ class CheatMenuDialog extends StatelessWidget {
     _showSnack(context, '🎒 Inventar geleert');
   }
 
+  // ── Beat Portal ───────────────────────────────────────────────────────────
+  Future<void> _resetBeatProgress(BuildContext context) async {
+    await beatLevelService.resetAll();
+    if (context.mounted)
+      _showSnack(context, '🎵 Beat-Fortschritt zurückgesetzt');
+  }
+
   // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
@@ -212,7 +221,7 @@ class CheatMenuDialog extends StatelessWidget {
                       _CheatButton(
                         label: '🗑️  ALLE DATEN LÖSCHEN',
                         subtitle:
-                            'Energy · Gold · EXP · Skills · Inventar · Position',
+                            'Energy · Gold · EXP · Skills · Inventar · Position · Beat',
                         color: Colors.red.shade800,
                         onTap: () => _deleteAllData(context),
                       ),
@@ -325,6 +334,17 @@ class CheatMenuDialog extends StatelessWidget {
                         subtitle: 'Alle Items aus allen Slots entfernen',
                         color: const Color(0xFF2A2A4A),
                         onTap: () => _resetInventory(context),
+                      ),
+
+                      // ── Beat Portal ────────────────────────────────────────
+                      const _SectionDivider(label: '🎵 BEAT PORTAL'),
+                      _CheatButton(
+                        label: 'Fortschritt zurücksetzen',
+                        subtitle:
+                            'Alle abgeschlossenen Beat-Level zurücksetzen',
+                        color: const Color(0xFF2A1800),
+                        borderColor: const Color(0xFFFFAA00),
+                        onTap: () => _resetBeatProgress(context),
                       ),
 
                       const SizedBox(height: 8),
