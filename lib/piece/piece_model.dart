@@ -6,15 +6,16 @@ enum PieceTeam { player, enemy, pet, partner }
 class PieceModel {
   final PieceTeam team;
   final int enemyLevel;
-  final bool canAttack; // ← neu
+  final bool canAttack;
   int x;
   int y;
   SpawnZone? spawnZone;
+  String? beatEnemyId; // Wird beim Spawnen in Beat-Maps gesetzt
 
   PieceModel({
     required this.team,
     this.enemyLevel = 1,
-    this.canAttack = false, // ← default false
+    this.canAttack = false,
     required this.x,
     required this.y,
     this.spawnZone,

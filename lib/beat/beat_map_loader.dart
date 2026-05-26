@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../board/board_loader.dart';
 import '../board/board_model.dart';
+import 'beat_level_config.dart';
 
 class BeatMapLoader {
   static const String _basePath = 'assets/beat_level';
@@ -34,6 +35,21 @@ class BeatMapLoader {
   /// Lädt beat_map_1 eines Levels (immer der Einstieg).
   static Future<BoardModel> loadEntry(String level) =>
       load(level: level, map: 'beat_map_1');
+
+  /// Lädt die config.json eines Beat-Levels.
+  /// Gibt BeatLevelConfig.defaults() zurück wenn keine Datei vorhanden.
+  static Future<BeatLevelConfig> loadConfig(String level) async {
+    final path = '$_basePath/$level/config.json';
+    try {
+      final String raw = await rootBundle.loadString(path);
+      final Map<String, dynamic> data = jsonDecode(raw);
+      debugPrint('BeatMapLoader: config loaded from $path');
+      return BeatLevelConfig.fromJson(data);
+    } catch (_) {
+      debugPrint('BeatMapLoader: no config.json for $level – using defaults');
+      return BeatLevelConfig.defaults();
+    }
+  }
 
   /// Erzeugt eine Referenz-ID für interne Portal-targetMap Felder.
   /// Format: 'beat_level:beat_maps_level_1/beat_map_2'

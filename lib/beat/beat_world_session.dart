@@ -1,28 +1,50 @@
 // beat/beat_world_session.dart
-//
-// Hält den Zustand einer aktiven BeatWorld-Session.
-// Wird beim Betreten eines BeatPortals gesetzt, beim Verlassen auf null gesetzt.
+
+import 'beat_enemy_state.dart';
 
 class BeatWorldSession {
-  /// Level-Ordner, z.B. 'beat_maps_level_1'
-  /// Entspricht beatMapName im BeatPortal-JSON.
   final String beatWorldId;
-
-  /// Außen-Map auf der das BeatPortal liegt (für Rückkehr).
   final String returnMapName;
-
-  /// Position des BeatPortals → Spawn-Position nach Verlassen.
   final int returnX;
   final int returnY;
 
-  const BeatWorldSession({
+  /// Key = mapName (z.B. 'beat_map_1'), Value = Gegner-Zustände dieser Map.
+  /// null bedeutet: diese Map wurde noch nie betreten → frisch aus JSON laden.
+  final Map<String, List<BeatEnemyState>> _enemyStates = {};
+
+  BeatWorldSession({
     required this.beatWorldId,
     required this.returnMapName,
     required this.returnX,
     required this.returnY,
   });
 
-  /// Einstieg ist immer beat_map_1 des jeweiligen Levels.
-  /// Referenz-Format für chess_game.dart: 'beat_level:<level>/<map>'
   String get entryRef => 'beat_level:$beatWorldId/beat_map_1';
+
+  /// null = Map noch nie betreten (frisch laden)
+  List<BeatEnemyState>? getEnemyStates(String mapName) => _enemyStates[mapName];
+
+  /// Initialen oder aktualisierten Zustand speichern
+  void saveEnemyStates(String mapName, List<BeatEnemyState> states) {
+    _enemyStates[mapName] = List.of(states);
+  }
+
+  /// Einen Gegner als besiegt markieren
+  bool markDefeated(String mapName, String enemyId) {
+    final states = _enemyStates[mapName];
+    if (states == null) return false;
+    final idx = states.indexWhere((e) => e.enemyId == enemyId);
+    if (idx == -1) return false;
+    states[idx] = states[idx].copyWith(defeated: true);
+    return true;
+  }
+
+  /// Gegner-Position nach Bewegung aktualisieren
+  void updatePosition(String mapName, String enemyId, int x, int y) {
+    final states = _enemyStates[mapName];
+    if (states == null) return;
+    final idx = states.indexWhere((e) => e.enemyId == enemyId);
+    if (idx == -1) return;
+    states[idx] = states[idx].copyWith(x: x, y: y);
+  }
 }

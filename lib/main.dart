@@ -17,7 +17,8 @@ import 'skills/skill_service.dart';
 import 'skills/skill_button.dart';
 import 'skills/active_skill_service.dart';
 import 'beat/beat_level_service.dart';
-import 'beat/beat_exit_button.dart'; // ← NEU
+import 'beat/beat_exit_button.dart';
+import 'beat/beat_timer/beat_timer_display.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,7 +57,6 @@ void main() async {
   final hudVisible = ValueNotifier<bool>(true);
 
   // ── Beat-Session Notifier ────────────────────────────────────────────────
-  // Wird true wenn der Spieler eine BeatWorld betritt → zeigt Exit-Button
   final beatSessionActive = ValueNotifier<bool>(false);
   game.onBeatSessionChanged = (active) => beatSessionActive.value = active;
 
@@ -64,185 +64,242 @@ void main() async {
     MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
-        body: Stack(
-          children: [
-            GameWidget(game: game),
+        body: BeatTimerDisplay(
+          controller: game.beatTimerController,
+          child: Stack(
+            children: [
+              // ── Spielfeld ────────────────────────────────────────────────
+              GameWidget(game: game),
 
-            // ── HUD oben links ─────────────────────────────────────────
-            ValueListenableBuilder<bool>(
-              valueListenable: hudVisible,
-              builder: (context, visible, child) => AnimatedOpacity(
-                opacity: visible ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: IgnorePointer(
-                  ignoring: !visible,
-                  child: SafeArea(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        EnergyDisplay(energyService: energyService),
-                        const SizedBox(height: 4),
-                        PlayerDisplay(playerService: playerService),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // ── Inventar ───────────────────────────────────────────────
-            ValueListenableBuilder<bool>(
-              valueListenable: hudVisible,
-              builder: (context, visible, child) => AnimatedOpacity(
-                opacity: visible ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: IgnorePointer(
-                  ignoring: !visible,
-                  child: InventoryDisplay(
-                    inventoryService: inventoryService,
-                    effectHandler: effectHandler,
-                  ),
-                ),
-              ),
-            ),
-
-            // ── Skill Button ───────────────────────────────────────────
-            SkillButton(
-              skillService: skillService,
-              activeSkillService: activeSkillService,
-              energyService: energyService,
-              onSkillActivated: () => game.selectPlayerPiece(),
-            ),
-
-            // ── Reward Animationen ─────────────────────────────────────
-            const RewardOverlay(),
-
-            // ── Beat Exit Button ───────────────────────────────────────
-            // Nur sichtbar wenn Spieler in einer BeatWorld ist
-            ValueListenableBuilder<bool>(
-              valueListenable: beatSessionActive,
-              builder: (context, inBeatWorld, _) => inBeatWorld
-                  ? BeatExitButton(onExit: () => game.exitBeatWorld())
-                  : const SizedBox.shrink(),
-            ),
-
-            // ── Oben rechts ────────────────────────────────────────────
-            SafeArea(
-              child: Align(
-                alignment: Alignment.topRight,
+              // ── HUD oben links ───────────────────────────────────────────
+              SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 8, right: 8),
-                  child: ValueListenableBuilder<bool>(
-                    valueListenable: hudVisible,
-                    builder: (context, visible, _) => Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        // ── Toggle Button ────────────────────────────
-                        GestureDetector(
-                          onTap: () => hudVisible.value = !hudVisible.value,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width: visible ? 36 : 28,
-                            height: visible ? 36 : 28,
-                            decoration: BoxDecoration(
-                              color: visible
-                                  ? Colors.white.withOpacity(0.85)
-                                  : Colors.white.withOpacity(0.25),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              visible ? Icons.visibility : Icons.visibility_off,
-                              size: visible ? 20 : 14,
-                              color: visible ? Colors.black87 : Colors.white54,
-                            ),
+                  padding: const EdgeInsets.only(left: 0, top: 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // ── Lücke wenn Beat-Timer aktiv (Timer ist im
+                      //    BeatTimerDisplay-Wrapper oben links eingebettet,
+                      //    hier reservieren wir nur den Platz) ──────────────
+                      ListenableBuilder(
+                        listenable: game.beatTimerController,
+                        builder: (context, _) => AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOut,
+                          child: SizedBox(
+                            height: game.beatTimerController.isActive ? 68 : 0,
                           ),
                         ),
+                      ),
 
-                        if (visible) ...[
-                          const SizedBox(height: 6),
-
-                          // ── Cheat Button ─────────────────────────
-                          GestureDetector(
-                            onTap: () => showDialog(
-                              context: context,
-                              builder: (_) => CheatMenuDialog(
-                                energyService: energyService,
-                                playerService: playerService,
-                                inventoryService: inventoryService,
-                                skillService: skillService,
-                                beatLevelService: beatLevelService,
-                                onResetPosition: () =>
-                                    game.teleportToSavedPosition(),
-                              ),
-                            ),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade700.withOpacity(0.85),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.red.shade300,
-                                  width: 1,
-                                ),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.bug_report,
-                                    color: Colors.white,
-                                    size: 16,
+                      // ── Normales HUD (Energy + Player) ──────────────────
+                      ValueListenableBuilder<bool>(
+                        valueListenable: hudVisible,
+                        builder: (context, visible, _) => AnimatedSize(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeOut,
+                          child: visible
+                              ? AnimatedOpacity(
+                                  opacity: 1.0,
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      EnergyDisplay(
+                                        energyService: energyService,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      PlayerDisplay(
+                                        playerService: playerService,
+                                      ),
+                                    ],
                                   ),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'CHEAT',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
-                          const SizedBox(height: 6),
-
-                          // ── Zoom Buttons ─────────────────────────
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _ZoomButton(
-                                icon: Icons.zoom_in,
-                                onTap: () => game.setZoomNear(),
-                              ),
-                              const SizedBox(width: 4),
-                              _ZoomButton(
-                                icon: Icons.zoom_out,
-                                onTap: () => game.setZoomDefault(),
-                              ),
-                              const SizedBox(width: 4),
-                              _ZoomButton(
-                                icon: Icons.paragliding,
-                                onTap: () => game.setZoomFar(),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
+              // ── Inventar ─────────────────────────────────────────────────
+              ValueListenableBuilder<bool>(
+                valueListenable: hudVisible,
+                builder: (context, visible, child) => AnimatedOpacity(
+                  opacity: visible ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(
+                    ignoring: !visible,
+                    child: InventoryDisplay(
+                      inventoryService: inventoryService,
+                      effectHandler: effectHandler,
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+
+              // ── Skill Button ──────────────────────────────────────────────
+              SkillButton(
+                skillService: skillService,
+                activeSkillService: activeSkillService,
+                energyService: energyService,
+                onSkillActivated: () => game.selectPlayerPiece(),
+              ),
+
+              // ── Reward Animationen ────────────────────────────────────────
+              const RewardOverlay(),
+
+              // ── Beat Exit Button ──────────────────────────────────────────
+              ValueListenableBuilder<bool>(
+                valueListenable: beatSessionActive,
+                builder: (context, inBeatWorld, _) => inBeatWorld
+                    ? BeatExitButton(onExit: () => game.exitBeatWorld())
+                    : const SizedBox.shrink(),
+              ),
+
+              // ── Oben rechts ───────────────────────────────────────────────
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8, right: 8),
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: hudVisible,
+                      builder: (context, visible, _) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          // ── NEU: Lücke wenn Beat-Timer aktiv ────────────
+                          ListenableBuilder(
+                            listenable: game.beatTimerController,
+                            builder: (context, _) => AnimatedSize(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeOut,
+                              child: SizedBox(
+                                height: game.beatTimerController.isActive
+                                    ? 68
+                                    : 0,
+                              ),
+                            ),
+                          ),
+
+                          // ── Toggle Button ────────────────────────────────
+                          GestureDetector(
+                            onTap: () => hudVisible.value = !hudVisible.value,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: visible ? 36 : 28,
+                              height: visible ? 36 : 28,
+                              decoration: BoxDecoration(
+                                color: visible
+                                    ? Colors.white.withOpacity(0.85)
+                                    : Colors.white.withOpacity(0.25),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                visible
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                                size: visible ? 20 : 14,
+                                color: visible
+                                    ? Colors.black87
+                                    : Colors.white54,
+                              ),
+                            ),
+                          ),
+
+                          if (visible) ...[
+                            const SizedBox(height: 6),
+
+                            // ── Cheat Button ──────────────────────────────
+                            Builder(
+                              builder: (context) => GestureDetector(
+                                onTap: () => showDialog(
+                                  context: context,
+                                  builder: (_) => CheatMenuDialog(
+                                    energyService: energyService,
+                                    playerService: playerService,
+                                    inventoryService: inventoryService,
+                                    skillService: skillService,
+                                    beatLevelService: beatLevelService,
+                                    onResetPosition: () =>
+                                        game.teleportToSavedPosition(),
+                                  ),
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade700.withOpacity(
+                                      0.85,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.red.shade300,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.bug_report,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'CHEAT',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 6),
+
+                            // ── Zoom Buttons ──────────────────────────────
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _ZoomButton(
+                                  icon: Icons.zoom_in,
+                                  onTap: () => game.setZoomNear(),
+                                ),
+                                const SizedBox(width: 4),
+                                _ZoomButton(
+                                  icon: Icons.zoom_out,
+                                  onTap: () => game.setZoomDefault(),
+                                ),
+                                const SizedBox(width: 4),
+                                _ZoomButton(
+                                  icon: Icons.paragliding,
+                                  onTap: () => game.setZoomFar(),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     ),
@@ -250,7 +307,6 @@ void main() async {
 }
 
 // ── Zoom Button ───────────────────────────────────────────────────────────────
-
 class _ZoomButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
