@@ -5,14 +5,17 @@ import '../energy/energy_service.dart';
 import '../player/player_service.dart';
 import '../inventory/inventory_service.dart';
 import '../skills/skill_service.dart';
-import '../beat/beat_level_service.dart'; // ← NEU
+import '../beat/beat_level_service.dart';
+import '../chest/chest_service.dart';
+import '../chest/chest_registry.dart';
+import '../chest/chest_model.dart';
 
 class CheatMenuButton extends StatelessWidget {
   final EnergyService energyService;
   final PlayerService playerService;
   final InventoryService inventoryService;
   final SkillService skillService;
-  final BeatLevelService beatLevelService; // ← NEU
+  final BeatLevelService beatLevelService;
   final bool enabled;
 
   const CheatMenuButton({
@@ -21,7 +24,7 @@ class CheatMenuButton extends StatelessWidget {
     required this.playerService,
     required this.inventoryService,
     required this.skillService,
-    required this.beatLevelService, // ← NEU
+    required this.beatLevelService,
     this.enabled = true,
   });
 
@@ -34,7 +37,8 @@ class CheatMenuDialog extends StatelessWidget {
   final PlayerService playerService;
   final InventoryService inventoryService;
   final SkillService skillService;
-  final BeatLevelService beatLevelService; // ← NEU
+  final BeatLevelService beatLevelService;
+  final ChestService chestService;
   final VoidCallback onResetPosition;
 
   const CheatMenuDialog({
@@ -43,7 +47,8 @@ class CheatMenuDialog extends StatelessWidget {
     required this.playerService,
     required this.inventoryService,
     required this.skillService,
-    required this.beatLevelService, // ← NEU
+    required this.beatLevelService,
+    required this.chestService,
     required this.onResetPosition,
   });
 
@@ -54,8 +59,8 @@ class CheatMenuDialog extends StatelessWidget {
       context,
       title: '⚠️ Alle Daten löschen?',
       message:
-          'Energy, Gold, EXP, Level, Skills, Inventar, Position und '
-          'alle Beat-Fortschritte werden komplett zurückgesetzt.',
+          'Energy, Gold, EXP, Level, Skills, Inventar, Position, '
+          'Beat-Fortschritte und Chests werden komplett zurückgesetzt.',
     );
     if (!confirm) return;
 
@@ -70,7 +75,8 @@ class CheatMenuDialog extends StatelessWidget {
     playerService.resetPosition();
     inventoryService.clearAll();
     skillService.cheatResetAll();
-    await beatLevelService.resetAll(); // ← NEU
+    await beatLevelService.resetAll();
+    await _clearAllChests();
 
     onResetPosition();
 
@@ -165,6 +171,51 @@ class CheatMenuDialog extends StatelessWidget {
       _showSnack(context, '🎵 Beat-Fortschritt zurückgesetzt');
   }
 
+  // ── Chests ────────────────────────────────────────────────────────────────
+
+  /// Fügt alle Chests aus der Registry hinzu, die noch nicht im Inventar sind.
+  Future<void> _addAllMissingChests(BuildContext context) async {
+    final existing = chestService.chests;
+    final existingIds = existing.map((c) => c.id).toSet();
+
+    final toAdd = ChestRegistry.allChests
+        .where((def) => !existingIds.contains(def.id))
+        .toList();
+
+    if (toAdd.isEmpty) {
+      if (context.mounted)
+        _showSnack(context, '📦 Alle Chests bereits im Inventar');
+      return;
+    }
+
+    for (final def in toAdd) {
+      await chestService.addChest(
+        ChestModel(
+          id: def.id,
+          fromBeatWorldId: def.fromBeatWorldId,
+          displayName: def.displayName,
+          earnedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+    }
+
+    if (context.mounted)
+      _showSnack(context, '📦 ${toAdd.length} Chest(s) hinzugefügt');
+  }
+
+  /// Leert das gesamte Chest-Inventar.
+  Future<void> _clearAllChests() async {
+    final ids = chestService.chests.map((c) => c.id).toList();
+    for (final id in ids) {
+      await chestService.removeChest(id);
+    }
+  }
+
+  Future<void> _clearChests(BuildContext context) async {
+    await _clearAllChests();
+    if (context.mounted) _showSnack(context, '📦 Chest-Inventar geleert');
+  }
+
   // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
@@ -221,7 +272,7 @@ class CheatMenuDialog extends StatelessWidget {
                       _CheatButton(
                         label: '🗑️  ALLE DATEN LÖSCHEN',
                         subtitle:
-                            'Energy · Gold · EXP · Skills · Inventar · Position · Beat',
+                            'Energy · Gold · EXP · Skills · Inventar · Position · Beat · Chests',
                         color: Colors.red.shade800,
                         onTap: () => _deleteAllData(context),
                       ),
@@ -345,6 +396,27 @@ class CheatMenuDialog extends StatelessWidget {
                         color: const Color(0xFF2A1800),
                         borderColor: const Color(0xFFFFAA00),
                         onTap: () => _resetBeatProgress(context),
+                      ),
+
+                      // ── Chests ─────────────────────────────────────────────
+                      const _SectionDivider(label: '📦 CHESTS'),
+                      _CheatButtonRow(
+                        children: [
+                          _CheatButton(
+                            label: 'Alle hinzufügen',
+                            subtitle: 'Nur fehlende Chests',
+                            color: const Color(0xFF1A2A1A),
+                            borderColor: Colors.green.shade700,
+                            onTap: () => _addAllMissingChests(context),
+                          ),
+                          _CheatButton(
+                            label: 'Alle löschen',
+                            subtitle: 'Chest-Inventar leeren',
+                            color: const Color(0xFF3A1A1A),
+                            borderColor: Colors.red.shade900,
+                            onTap: () => _clearChests(context),
+                          ),
+                        ],
                       ),
 
                       const SizedBox(height: 8),

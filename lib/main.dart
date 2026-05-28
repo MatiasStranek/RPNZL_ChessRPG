@@ -229,6 +229,7 @@ void main() async {
                                     inventoryService: inventoryService,
                                     skillService: skillService,
                                     beatLevelService: beatLevelService,
+                                    chestService: chestService,
                                     onResetPosition: () =>
                                         game.teleportToSavedPosition(),
                                   ),

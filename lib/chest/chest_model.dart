@@ -1,32 +1,32 @@
-// chest/chest_model.dart
-//
-// Immutables Datenmodell für eine gesammelte Kiste.
-
 class ChestModel {
-  /// Eindeutige ID der Kiste (z.B. UUID oder timestamp-basiert)
   final String id;
-
-  /// beatWorldId des Beat-Levels aus dem die Kiste stammt
   final String fromBeatWorldId;
-
-  /// Anzeigename (z.B. "Beat Maps Level 1")
   final String displayName;
-
-  /// Zeitstempel wann die Kiste erhalten wurde (Unix-Sekunden)
   final int earnedAt;
+  final bool isOpened;
 
   const ChestModel({
     required this.id,
     required this.fromBeatWorldId,
     required this.displayName,
     required this.earnedAt,
+    this.isOpened = false,
   });
+
+  ChestModel copyWith({bool? isOpened}) => ChestModel(
+    id: id,
+    fromBeatWorldId: fromBeatWorldId,
+    displayName: displayName,
+    earnedAt: earnedAt,
+    isOpened: isOpened ?? this.isOpened,
+  );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'fromBeatWorldId': fromBeatWorldId,
     'displayName': displayName,
     'earnedAt': earnedAt,
+    'isOpened': isOpened,
   };
 
   factory ChestModel.fromJson(Map<String, dynamic> j) => ChestModel(
@@ -34,5 +34,6 @@ class ChestModel {
     fromBeatWorldId: j['fromBeatWorldId'] as String,
     displayName: j['displayName'] as String,
     earnedAt: j['earnedAt'] as int,
+    isOpened: j['isOpened'] as bool? ?? false,
   );
 }

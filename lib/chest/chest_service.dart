@@ -1,9 +1,3 @@
-// chest/chest_service.dart
-//
-// Verwaltet gesammelte Kisten des Spielers.
-// Jede Kiste hat einen Ursprung (beatWorldId) und einen Zeitstempel.
-// Wird via Hive persistent gespeichert.
-
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -26,21 +20,27 @@ class ChestService {
 
   int get count => chestsNotifier.value.length;
 
-  /// Fügt eine neue Kiste hinzu und speichert sie.
   Future<void> addChest(ChestModel chest) async {
     final updated = [...chestsNotifier.value, chest];
     chestsNotifier.value = updated;
     await _save(updated);
   }
 
-  /// Entfernt eine Kiste anhand ihrer ID (z.B. beim Öffnen).
+  /// Markiert eine Kiste als geöffnet – sie bleibt im Inventar.
+  Future<void> openChest(String chestId) async {
+    final updated = chestsNotifier.value.map((c) {
+      return c.id == chestId ? c.copyWith(isOpened: true) : c;
+    }).toList();
+    chestsNotifier.value = updated;
+    await _save(updated);
+  }
+
+  /// Entfernt eine Kiste komplett (falls noch gebraucht).
   Future<void> removeChest(String chestId) async {
     final updated = chestsNotifier.value.where((c) => c.id != chestId).toList();
     chestsNotifier.value = updated;
     await _save(updated);
   }
-
-  // ── Intern ────────────────────────────────────────────────────────────────
 
   void _load() {
     final raw = _box.get(_chestsKey);

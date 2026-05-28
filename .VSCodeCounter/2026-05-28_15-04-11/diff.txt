@@ -1,0 +1,33 @@
+Date : 2026-05-28 15:04:11
+Directory : c:\Users\nxt2b\Documents\IT_Anwendungsentwicklung\Coding_Projects\MajorFolder_FlutterCoding\chessrpg\lib
+Total : 5 files,  65 codes, -8 comments, 4 blanks, all 61 lines
+
+Languages
++----------+------------+------------+------------+------------+------------+
+| language | files      | code       | comment    | blank      | total      |
++----------+------------+------------+------------+------------+------------+
+| Dart     |          5 |         65 |         -8 |          4 |         61 |
++----------+------------+------------+------------+------------+------------+
+
+Directories
++-----------------------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                                                                                      | files      | code       | comment    | blank      | total      |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                                                                         |          5 |         65 |         -8 |          4 |         61 |
+| beat                                                                                                                                                      |          5 |         65 |         -8 |          4 |         61 |
+| beat\beat_timer                                                                                                                                           |          5 |         65 |         -8 |          4 |         61 |
+| beat\beat_timer (Files)                                                                                                                                   |          1 |       -457 |        -39 |        -48 |       -544 |
+| beat\beat_timer\effects                                                                                                                                   |          4 |        522 |         31 |         52 |        605 |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++-----------------------------------------------------------------------------------------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| filename                                                                                                                                                  | language | code       | comment    | blank      | total      |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| c:\Users\nxt2b\Documents\IT_Anwendungsentwicklung\Coding_Projects\MajorFolder_FlutterCoding\chessrpg\lib\beat\beat_timer\beat_timer_display.dart          | Dart     |       -457 |        -39 |        -48 |       -544 |
+| c:\Users\nxt2b\Documents\IT_Anwendungsentwicklung\Coding_Projects\MajorFolder_FlutterCoding\chessrpg\lib\beat\beat_timer\effects\beat_hud.dart            | Dart     |        113 |          4 |          5 |        122 |
+| c:\Users\nxt2b\Documents\IT_Anwendungsentwicklung\Coding_Projects\MajorFolder_FlutterCoding\chessrpg\lib\beat\beat_timer\effects\beat_timer_effects.dart  | Dart     |        179 |         12 |         19 |        210 |
+| c:\Users\nxt2b\Documents\IT_Anwendungsentwicklung\Coding_Projects\MajorFolder_FlutterCoding\chessrpg\lib\beat\beat_timer\effects\beat_timer_models.dart   | Dart     |         64 |          3 |          6 |         73 |
+| c:\Users\nxt2b\Documents\IT_Anwendungsentwicklung\Coding_Projects\MajorFolder_FlutterCoding\chessrpg\lib\beat\beat_timer\effects\beat_timer_painters.dart | Dart     |        166 |         12 |         22 |        200 |
+| Total                                                                                                                                                     |          |         65 |         -8 |          4 |         61 |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------+----------+------------+------------+------------+------------+

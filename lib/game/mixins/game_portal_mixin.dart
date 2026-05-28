@@ -62,20 +62,11 @@ mixin GamePortalMixin on GameStateMixin {
       await chestService.addChest(chest);
     }
 
-    // ── Beat-Complete Animation feuern ────────────────────────────────────
+    // ── Animation feuern (Kiste ist bereits integriert wenn !repeated) ────
     RewardOverlayController.instance.fireBeatComplete(
-      session.beatWorldId,
+      _formatBeatWorldName(session.beatWorldId),
       repeated: wasAlreadyCompleted,
     );
-
-    // ── Kisten-Animation feuern (nur beim ersten Abschluss) ───────────────
-    // Verzögerung: beatComplete-Animation läuft 3500 ms → danach 400 ms Puffer
-    if (!wasAlreadyCompleted) {
-      final levelName = _formatBeatWorldName(session.beatWorldId);
-      Future.delayed(const Duration(milliseconds: 3900), () {
-        RewardOverlayController.instance.fireChestEarned(levelName);
-      });
-    }
 
     beatSession = null;
     currentBeatMapName = '';
@@ -236,7 +227,6 @@ mixin GamePortalMixin on GameStateMixin {
 
     inputLocked = true;
 
-    // Gegner-Zustände komplett zurücksetzen – nächste Runde startet frisch.
     await beatLevelService.resetEnemyStates(session.beatWorldId);
 
     beatSession = null;
@@ -280,7 +270,6 @@ mixin GamePortalMixin on GameStateMixin {
   }
 
   // ── Hilfsfunktion: beatWorldId → lesbarer Name ────────────────────────────
-  // Wandelt z.B. "beat_maps_level_1" → "Beat Maps Level 1"
   String _formatBeatWorldName(String beatWorldId) {
     return beatWorldId
         .split('_')
